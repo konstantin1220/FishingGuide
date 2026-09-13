@@ -14,9 +14,9 @@
 
 * { box-sizing: border-box; }
 
-.app-header[hidden],
-.bottom-nav[hidden] {
-  display: none;
+/* [hidden] muss IMMER gewinnen, auch gegen eigene display:flex-Regeln auf demselben Element. */
+[hidden] {
+  display: none !important;
 }
 
 .icon {
@@ -184,10 +184,6 @@ main#view {
   transition: transform 0.12s ease, box-shadow 0.12s ease;
 }
 
-.dashboard-card-wide {
-  grid-column: 1 / -1;
-}
-
 .dashboard-card:active {
   transform: scale(0.97);
   box-shadow: var(--shadow-lg);
@@ -265,7 +261,7 @@ main#view {
 }
 
 .card-form button[type="submit"],
-.card-form > button:not(.secondary-btn):not(#use-location) {
+.card-form > button:not(.secondary-btn):not(#use-location):not(.link-btn) {
   background: var(--accent);
   color: white;
   border: none;
@@ -315,6 +311,27 @@ main#view {
 
 .map-hint {
   margin: -4px 0 0;
+}
+
+.name-suggestion {
+  margin: -4px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.name-suggestion .suggestion-text {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.name-suggestion .link-btn {
+  padding: 0;
+}
+
+#map-toggle {
+  justify-content: flex-start;
 }
 
 .map-live {
@@ -475,6 +492,89 @@ main#view {
 
 .tip-item p {
   margin: 4px 0 0;
+}
+
+.forecast-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.forecast-day {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 2px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+
+.forecast-day:last-child {
+  border-bottom: none;
+}
+
+.forecast-day-label {
+  width: 46px;
+  color: var(--muted);
+  text-transform: capitalize;
+}
+
+.forecast-day-temp {
+  flex: 1;
+}
+
+.forecast-day-precip {
+  color: var(--primary-light);
+  font-weight: 600;
+  width: 40px;
+  text-align: right;
+}
+
+.trips-widget-title {
+  margin: 18px 0 8px;
+  font-size: 0.95rem;
+  color: var(--primary);
+}
+
+.trips-widget {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.trip-mini-card {
+  background: var(--card-bg);
+  border-radius: 12px;
+  padding: 12px 14px;
+  box-shadow: var(--shadow);
+}
+
+.trip-mini-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.trip-mini-weather {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.trip-mini-tip {
+  margin: 6px 0 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.trip-mini-tip .tip-kategorie {
+  margin-right: 4px;
 }
 
 .tip-kategorie {

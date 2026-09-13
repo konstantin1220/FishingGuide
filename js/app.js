@@ -27,6 +27,7 @@
     fanglog: renderFanglog,
     koeder: renderKoeder,
     wetter: renderWetter,
+    trips: renderTrips,
     einstellungen: renderEinstellungen,
     impressum: () => renderImpressum(false),
   };
@@ -35,8 +36,11 @@
   let gewaesserEditId = null;
   let fangEditId = null;
   let koederEditId = null;
+  let tripEditId = null;
   let koederExpandedId = null;
   let wetterPreselectId = null;
+  let wetterForecastOpen = false;
+  let mapExpanded = false;
   let leafletMap = null;
   let leafletMarker = null;
 
@@ -46,6 +50,8 @@
     gewaesserEditId = null;
     fangEditId = null;
     koederEditId = null;
+    tripEditId = null;
+    mapExpanded = false;
     VIEWS[name]();
   }
 
@@ -79,6 +85,26 @@
     if ([51, 53, 55, 61, 63, 65, 80, 81, 82, 95, 96, 99].includes(code)) return 'rain';
     if ([2, 3, 45, 48].includes(code)) return 'cloud';
     return 'weather';
+  }
+
+  function fmtShortDate(dateStr) {
+    return new Date(dateStr).toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' });
+  }
+
+  function fmtDayDate(dateStr) {
+    return new Date(dateStr).toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: 'long' });
+  }
+
+  function pseudoWeatherFromForecastDay(day) {
+    return {
+      temperature: (day.tempMax + day.tempMin) / 2,
+      pressure: null,
+      pressureTrend: { diff: 0, direction: 'stabil' },
+      windSpeed: day.windSpeedMax ?? 0,
+      cloudCover: null,
+      weatherCode: day.weatherCode,
+      weatherLabel: day.weatherLabel,
+    };
   }
 
   // ---------- Login-Gate ----------
@@ -152,8 +178,12 @@
     const faenge = Storage.faenge.list();
     const gewaesser = Storage.gewaesser.list();
     const koeder = Storage.koeder.list();
+    const trips = Storage.trips.list();
     const letzterFang = [...faenge].sort((a, b) => new Date(b.datum) - new Date(a.datum))[0];
     const letzterKoeder = koeder[koeder.length - 1];
+    const heute = new Date().toISOString().slice(0, 10);
+    const kommendeTrips = trips.filter(t => t.datum >= heute).sort((a, b) => a.datum.localeCompare(b.datum));
+    const naechsterTrip = kommendeTrips[0];
 
     const wetterGewaesserId = localStorage.getItem('fg_last_wetter_gewaesser');
     const wetterGewaesser = gewaesser.find(g => g.id === wetterGewaesserId) || gewaesser[0];
@@ -193,7 +223,17 @@
               ? `${koeder.length} im Bestand · zuletzt ${escapeHtml(letzterKoeder.name)}`
               : 'Noch keine Köder angelegt'}</span>
           </button>
-          <button class="dashboard-card dashboard-card-wide" data-view="gewaesser">
+          <button class="dashboard-card" data-view="trips">
+            <div class="dashboard-card-top">
+              <span class="dashboard-icon">${Icons.svg('calendar')}</span>
+              <span class="dashboard-chevron">${Icons.svg('chevron', { size: 18 })}</span>
+            </div>
+            <span class="dashboard-title">Trips</span>
+            <span class="dashboard-subtitle">${naechsterTrip
+              ? `Nächster: ${fmtShortDate(naechsterTrip.datum)} · ${escapeHtml(gewaesser.find(g => g.id === naechsterTrip.gewaesserId)?.name || '–')}`
+              : 'Noch kein Trip geplant'}</span>
+          </button>
+          <button class="dashboard-card" data-view="gewaesser">
             <div class="dashboard-card-top">
               <span class="dashboard-icon">${Icons.svg('pin')}</span>
               <span class="dashboard-chevron">${Icons.svg('chevron', { size: 18 })}</span>
@@ -248,7 +288,7 @@
     const startLat = editing ? editing.lat : 51.1657;
     const startLon = editing ? editing.lon : 10.4515;
 
-    leafletMap = L.map(container).setView([startLat, startLon], editing ? 12 : 5.5);
+    leafletMap = L.map(container, { scrollWheelZoom: false }).setView([startLat, startLon], editing ? 12 : 5.5);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '&copy; OpenStreetMap Mitwirkende',
@@ -256,7 +296,7 @@
 
     setTimeout(() => leafletMap && leafletMap.invalidateSize(), 0);
 
-    if (editing) placeMarker(editing.lat, editing.lon, latInput, lonInput);
+    if (editing) placeMarker(editing.lat, editing.lon, latInput, lonInput, { suggestName: false });
 
     leafletMap.on('click', e => {
       latInput.value = e.latlng.lat.toFixed(5);
@@ -265,7 +305,7 @@
     });
   }
 
-  function placeMarker(lat, lon, latInput, lonInput) {
+  function placeMarker(lat, lon, latInput, lonInput, opts = {}) {
     if (leafletMarker) {
       leafletMarker.setLatLng([lat, lon]);
     } else {
@@ -274,7 +314,52 @@
         const pos = leafletMarker.getLatLng();
         latInput.value = pos.lat.toFixed(5);
         lonInput.value = pos.lng.toFixed(5);
+        scheduleNameSuggestion(pos.lat, pos.lng);
       });
+    }
+    if (opts.suggestName !== false) scheduleNameSuggestion(lat, lon);
+  }
+
+  // ---------- Namensvorschlag per Reverse-Geocoding (Nominatim/OSM) ----------
+  let geocodeTimer = null;
+
+  function scheduleNameSuggestion(lat, lon) {
+    const hintEl = document.getElementById('name-suggestion');
+    if (hintEl) hintEl.hidden = true;
+    clearTimeout(geocodeTimer);
+    geocodeTimer = setTimeout(() => fetchNameSuggestion(lat, lon), 600);
+  }
+
+  function buildNameSuggestion(data) {
+    const addr = data.address || {};
+    const water = (data.namedetails && data.namedetails.name) || addr.water || addr.natural || null;
+    const ort = addr.city || addr.town || addr.village || addr.suburb || addr.hamlet || null;
+    if (water && ort) return `${water} · ${ort}`;
+    if (water) return water;
+    if (ort) return ort;
+    if (data.display_name) return data.display_name.split(',').slice(0, 2).join(',').trim();
+    return null;
+  }
+
+  async function fetchNameSuggestion(lat, lon) {
+    const nameInput = document.querySelector('#gewaesser-form [name="name"]');
+    const hintEl = document.getElementById('name-suggestion');
+    if (!nameInput) return;
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const suggestion = buildNameSuggestion(data);
+      if (!suggestion) return;
+      if (!nameInput.value.trim()) {
+        nameInput.value = suggestion;
+      } else if (hintEl) {
+        hintEl.dataset.value = suggestion;
+        hintEl.querySelector('.suggestion-text').textContent = suggestion;
+        hintEl.hidden = false;
+      }
+    } catch {
+      // Kein Netz/Nominatim nicht erreichbar - Namensvorschlag einfach auslassen.
     }
   }
 
@@ -287,13 +372,23 @@
         <h2>Gewässer</h2>
         <form id="gewaesser-form" class="card-form">
           <input type="text" name="name" placeholder="Name (z.B. Vereinsteich Nord)" value="${editing ? escapeHtml(editing.name) : ''}" required>
+          <p id="name-suggestion" class="muted name-suggestion" hidden>
+            Vorschlag: <span class="suggestion-text"></span>
+            <button type="button" id="use-suggestion" class="link-btn">übernehmen</button>
+          </p>
           <div class="row">
             <input type="number" step="any" name="lat" placeholder="Breitengrad (lat)" value="${editing ? editing.lat : ''}" required>
             <input type="number" step="any" name="lon" placeholder="Längengrad (lon)" value="${editing ? editing.lon : ''}" required>
           </div>
           <button type="button" id="use-location">${Icons.svg('pin', { size: 18 })} Aktuellen Standort verwenden</button>
-          <p class="muted map-hint">Oder direkt auf die Karte klicken, um den Punkt zu setzen.</p>
-          <div id="map-live" class="map-live"></div>
+          <button type="button" id="map-toggle" class="link-btn">
+            <span id="map-toggle-icon">${Icons.svg('chevron', { size: 14, class: mapExpanded ? 'chevron-open' : '' })}</span>
+            <span id="map-toggle-label">${mapExpanded ? 'Karte ausblenden' : 'Karte anzeigen (Punkt per Klick setzen)'}</span>
+          </button>
+          <div id="map-collapse" ${mapExpanded ? '' : 'hidden'}>
+            <p class="muted map-hint">Direkt auf die Karte klicken, um den Punkt zu setzen.</p>
+            <div id="map-live" class="map-live"></div>
+          </div>
           <textarea name="notiz" placeholder="Notiz (optional)">${editing ? escapeHtml(editing.notiz || '') : ''}</textarea>
           <div class="row">
             <button type="submit">${editing ? 'Speichern' : 'Gewässer hinzufügen'}</button>
@@ -318,13 +413,42 @@
     const latInput = document.querySelector('[name="lat"]');
     const lonInput = document.querySelector('[name="lon"]');
     const mapContainer = document.getElementById('map-live');
-    initMap(mapContainer, latInput, lonInput, editing);
+    const mapCollapse = document.getElementById('map-collapse');
+    const mapToggle = document.getElementById('map-toggle');
+    let mapInitialized = false;
+
+    function ensureMapInit() {
+      if (!mapInitialized) {
+        initMap(mapContainer, latInput, lonInput, editing);
+        mapInitialized = true;
+      } else if (leafletMap) {
+        leafletMap.invalidateSize();
+      }
+    }
+
+    if (mapExpanded) ensureMapInit();
+
+    mapToggle.addEventListener('click', () => {
+      mapExpanded = !mapExpanded;
+      mapCollapse.hidden = !mapExpanded;
+      document.getElementById('map-toggle-label').textContent = mapExpanded ? 'Karte ausblenden' : 'Karte anzeigen (Punkt per Klick setzen)';
+      document.getElementById('map-toggle-icon').innerHTML = Icons.svg('chevron', { size: 14, class: mapExpanded ? 'chevron-open' : '' });
+      if (mapExpanded) ensureMapInit();
+    });
+
+    document.getElementById('use-suggestion').addEventListener('click', () => {
+      const hintEl = document.getElementById('name-suggestion');
+      document.querySelector('[name="name"]').value = hintEl.dataset.value || '';
+      hintEl.hidden = true;
+    });
 
     [latInput, lonInput].forEach(input =>
       input.addEventListener('change', () => {
         const lat = parseFloat(latInput.value);
         const lon = parseFloat(lonInput.value);
         if (!Number.isNaN(lat) && !Number.isNaN(lon)) {
+          if (!mapExpanded) { mapExpanded = true; mapCollapse.hidden = false; }
+          ensureMapInit();
           placeMarker(lat, lon, latInput, lonInput);
           leafletMap.setView([lat, lon], Math.max(leafletMap.getZoom(), 12));
         }
@@ -344,6 +468,8 @@
         pos => {
           latInput.value = pos.coords.latitude.toFixed(5);
           lonInput.value = pos.coords.longitude.toFixed(5);
+          if (!mapExpanded) { mapExpanded = true; mapCollapse.hidden = false; }
+          ensureMapInit();
           placeMarker(pos.coords.latitude, pos.coords.longitude, latInput, lonInput);
           leafletMap.setView([pos.coords.latitude, pos.coords.longitude], 13);
         },
@@ -374,14 +500,15 @@
         Storage.gewaesser.add(data);
       }
       gewaesserEditId = null;
+      mapExpanded = false;
       renderGewaesser();
     });
 
     const cancelBtn = document.getElementById('cancel-edit');
-    if (cancelBtn) cancelBtn.addEventListener('click', () => { gewaesserEditId = null; renderGewaesser(); });
+    if (cancelBtn) cancelBtn.addEventListener('click', () => { gewaesserEditId = null; mapExpanded = false; renderGewaesser(); });
 
     viewEl.querySelectorAll('.list-item-summary').forEach(el =>
-      el.addEventListener('click', () => { gewaesserEditId = el.dataset.id; renderGewaesser(); })
+      el.addEventListener('click', () => { gewaesserEditId = el.dataset.id; mapExpanded = true; renderGewaesser(); })
     );
 
     viewEl.querySelectorAll('.delete-btn').forEach(btn =>
@@ -614,6 +741,42 @@
   }
 
   // ---------- Wetter-Tipps ----------
+  async function loadTripPreview(trip, gewaesserList) {
+    const card = document.querySelector(`.trip-mini-card[data-id="${trip.id}"]`);
+    if (!card) return;
+    const g = gewaesserList.find(x => x.id === trip.gewaesserId);
+    if (!g) {
+      card.innerHTML = '<p class="muted">Gewässer nicht gefunden.</p>';
+      return;
+    }
+    try {
+      const w = await Weather.fetchCurrent(g.lat, g.lon);
+      const day = w.forecast.find(d => d.date === trip.datum);
+      if (!day) {
+        card.innerHTML = `
+          <div class="trip-mini-head"><strong>${escapeHtml(trip.name || g.name)}</strong><span class="muted">${fmtShortDate(trip.datum)}</span></div>
+          <p class="muted">Prognose noch nicht verfügbar (zu weit in der Zukunft).</p>
+        `;
+        return;
+      }
+      const pseudo = pseudoWeatherFromForecastDay(day);
+      const tips = Tips.getTips(pseudo);
+      card.innerHTML = `
+        <div class="trip-mini-head">
+          <strong>${escapeHtml(trip.name || g.name)}</strong>
+          <span class="muted">${fmtShortDate(trip.datum)} · ${escapeHtml(g.name)}</span>
+        </div>
+        <div class="trip-mini-weather">
+          ${Icons.svg(weatherIconFor(day.weatherCode), { size: 22 })}
+          <span>${Math.round(day.tempMin)}–${Math.round(day.tempMax)}°C · ${escapeHtml(day.weatherLabel)}</span>
+        </div>
+        ${tips[0] ? `<p class="trip-mini-tip"><span class="tip-kategorie">${escapeHtml(tips[0].kategorie)}</span> ${escapeHtml(tips[0].text)}</p>` : ''}
+      `;
+    } catch {
+      card.innerHTML = '<p class="muted">Wetterdaten aktuell nicht verfügbar.</p>';
+    }
+  }
+
   function renderWetter() {
     const gewaesser = Storage.gewaesser.list();
 
@@ -630,6 +793,12 @@
     const preselect = wetterPreselectId && gewaesser.some(g => g.id === wetterPreselectId) ? wetterPreselectId : gewaesser[0].id;
     wetterPreselectId = null;
 
+    const heute = new Date().toISOString().slice(0, 10);
+    const kommendeTrips = Storage.trips.list()
+      .filter(t => t.datum >= heute)
+      .sort((a, b) => a.datum.localeCompare(b.datum))
+      .slice(0, 2);
+
     viewEl.innerHTML = `
       <section class="view-section">
         <h2>Wetter-Tipps</h2>
@@ -639,8 +808,20 @@
         <div id="wetter-result" class="wetter-result">
           <p class="muted">Lade Wetterdaten…</p>
         </div>
+        ${kommendeTrips.length ? `
+          <h3 class="trips-widget-title">Anstehende Trips</h3>
+          <div id="trips-widget" class="trips-widget">
+            ${kommendeTrips.map(t => `<div class="trip-mini-card" data-id="${t.id}"><p class="muted">Lade Prognose…</p></div>`).join('')}
+          </div>
+        ` : ''}
       </section>
     `;
+
+    const tripsWidget = document.getElementById('trips-widget');
+    if (tripsWidget) {
+      tripsWidget.addEventListener('click', () => navigate('trips'));
+      kommendeTrips.forEach(t => loadTripPreview(t, gewaesser));
+    }
 
     const select = document.getElementById('wetter-gewaesser');
     const loadFor = async id => {
@@ -669,7 +850,28 @@
               </li>
             `).join('') || '<li class="muted">Aktuell keine besonderen Tipps.</li>'}
           </ul>
+          <button type="button" id="forecast-toggle" class="link-btn">
+            <span id="forecast-toggle-icon">${Icons.svg('chevron', { size: 14, class: wetterForecastOpen ? 'chevron-open' : '' })}</span>
+            <span id="forecast-toggle-label">${wetterForecastOpen ? '7-Tage-Vorschau ausblenden' : '7-Tage-Vorschau anzeigen'}</span>
+          </button>
+          <div id="forecast-collapse" class="forecast-list" ${wetterForecastOpen ? '' : 'hidden'}>
+            ${w.forecast.map(d => `
+              <div class="forecast-day">
+                <span class="forecast-day-label">${fmtShortDate(d.date)}</span>
+                ${Icons.svg(weatherIconFor(d.weatherCode), { size: 20 })}
+                <span class="forecast-day-temp">${Math.round(d.tempMin)}° / ${Math.round(d.tempMax)}°</span>
+                <span class="forecast-day-precip">${d.precipProb != null ? d.precipProb + '%' : '–'}</span>
+              </div>
+            `).join('')}
+          </div>
         `;
+
+        document.getElementById('forecast-toggle').addEventListener('click', () => {
+          wetterForecastOpen = !wetterForecastOpen;
+          document.getElementById('forecast-collapse').hidden = !wetterForecastOpen;
+          document.getElementById('forecast-toggle-label').textContent = wetterForecastOpen ? '7-Tage-Vorschau ausblenden' : '7-Tage-Vorschau anzeigen';
+          document.getElementById('forecast-toggle-icon').innerHTML = Icons.svg('chevron', { size: 14, class: wetterForecastOpen ? 'chevron-open' : '' });
+        });
       } catch (err) {
         resultEl.innerHTML = `<p class="muted">Fehler beim Laden der Wetterdaten: ${escapeHtml(err.message)}</p>`;
       }
@@ -677,6 +879,93 @@
 
     select.addEventListener('change', () => loadFor(select.value));
     loadFor(select.value);
+  }
+
+  // ---------- Trips ----------
+  function renderTrips() {
+    const items = Storage.trips.list().sort((a, b) => a.datum.localeCompare(b.datum));
+    const gewaesser = Storage.gewaesser.list();
+    const gName = id => gewaesser.find(g => g.id === id)?.name || '–';
+    const editing = tripEditId ? items.find(t => t.id === tripEditId) : null;
+    const heute = new Date().toISOString().slice(0, 10);
+
+    viewEl.innerHTML = `
+      <section class="view-section">
+        <h2>Angeltrips</h2>
+        <p class="muted">Persönliche Trip-Planung mit Wetterprognose. Freunde einladen, gemeinsames Leaderboard
+          und eine geteilte Spot-Karte sind als nächstes großes Vorhaben geplant (braucht ein Cloud-Backend).</p>
+        ${gewaesser.length === 0 ? '<p class="muted">Erst unter „Gewässer" ein Gewässer anlegen, um einen Trip zu planen.</p>' : `
+        <form id="trip-form" class="card-form">
+          <select name="gewaesserId" required>
+            <option value="" disabled ${editing ? '' : 'selected'}>Gewässer wählen</option>
+            ${gewaesser.map(g => `<option value="${g.id}" ${editing?.gewaesserId === g.id ? 'selected' : ''}>${escapeHtml(g.name)}</option>`).join('')}
+          </select>
+          <input type="date" name="datum" value="${editing ? editing.datum : ''}" required>
+          <input type="text" name="name" placeholder="Name (optional, z.B. Herbsttour Altrhein)" value="${editing ? escapeHtml(editing.name || '') : ''}">
+          <textarea name="notiz" placeholder="Notiz (optional)">${editing ? escapeHtml(editing.notiz || '') : ''}</textarea>
+          <div class="row">
+            <button type="submit">${editing ? 'Speichern' : 'Trip anlegen'}</button>
+            ${editing ? '<button type="button" id="cancel-edit" class="secondary-btn">Abbrechen</button>' : ''}
+          </div>
+        </form>
+        `}
+        <ul class="list">
+          ${items.map(t => `
+            <li class="list-item">
+              <div class="list-item-body">
+                <div class="list-item-summary" data-id="${t.id}">
+                  <strong>${escapeHtml(t.name || `Trip · ${gName(t.gewaesserId)}`)}</strong>
+                  <div class="muted">${fmtDayDate(t.datum)} · ${escapeHtml(gName(t.gewaesserId))}</div>
+                  ${t.notiz ? `<div class="muted">${escapeHtml(t.notiz)}</div>` : ''}
+                </div>
+                ${t.datum >= heute ? `<div class="trip-mini-card" data-id="${t.id}"><p class="muted">Lade Prognose…</p></div>` : ''}
+              </div>
+              <button class="delete-btn" data-id="${t.id}" data-label="${escapeHtml(t.name || gName(t.gewaesserId))}">${Icons.svg('trash', { size: 18 })}</button>
+            </li>
+          `).join('') || '<li class="muted">Noch keine Trips geplant.</li>'}
+        </ul>
+      </section>
+    `;
+
+    items.filter(t => t.datum >= heute).forEach(t => loadTripPreview(t, gewaesser));
+
+    const form = document.getElementById('trip-form');
+    if (form) {
+      form.addEventListener('submit', e => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        const data = {
+          gewaesserId: fd.get('gewaesserId'),
+          datum: fd.get('datum'),
+          name: fd.get('name').trim(),
+          notiz: fd.get('notiz').trim(),
+        };
+        if (tripEditId) {
+          Storage.trips.update(tripEditId, data);
+        } else {
+          Storage.trips.add(data);
+        }
+        tripEditId = null;
+        renderTrips();
+      });
+
+      const cancelBtn = document.getElementById('cancel-edit');
+      if (cancelBtn) cancelBtn.addEventListener('click', () => { tripEditId = null; renderTrips(); });
+    }
+
+    viewEl.querySelectorAll('.list-item-summary').forEach(el =>
+      el.addEventListener('click', () => { tripEditId = el.dataset.id; renderTrips(); })
+    );
+
+    viewEl.querySelectorAll('.delete-btn').forEach(btn =>
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        if (!confirmDelete(btn.dataset.label)) return;
+        Storage.trips.remove(btn.dataset.id);
+        if (tripEditId === btn.dataset.id) tripEditId = null;
+        renderTrips();
+      })
+    );
   }
 
   // ---------- Einstellungen ----------

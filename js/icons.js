@@ -18,6 +18,8 @@ const Icons = (() => {
     lock: '<rect x="5" y="10.5" width="14" height="9.5" rx="1.5"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/>',
     logout: '<path d="M15 4H7a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h8"/><path d="M10 12h10m0 0-3-3m3 3-3 3"/>',
     info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/>',
+    calendar: '<rect x="4" y="5.5" width="16" height="15" rx="1.5"/><path d="M4 10h16M8 3.5v3M16 3.5v3"/><circle cx="8.3" cy="14" r="0.9" fill="currentColor" stroke="none"/><circle cx="12" cy="14" r="0.9" fill="currentColor" stroke="none"/>',
+    users: '<circle cx="9" cy="9" r="3"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0"/><path d="M16 8.5a2.8 2.8 0 0 1 0 5.4M19.5 20a4.8 4.8 0 0 0-3.3-5.6"/>',
   };
 
   function svg(name, opts = {}) {

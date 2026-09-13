@@ -4,6 +4,7 @@ const Storage = (() => {
     gewaesser: 'fg_gewaesser',
     faenge: 'fg_faenge',
     koeder: 'fg_koeder',
+    trips: 'fg_trips',
   };
 
   function uid() {
@@ -57,6 +58,7 @@ const Storage = (() => {
       gewaesser: readAll(KEYS.gewaesser),
       faenge: readAll(KEYS.faenge),
       koeder: readAll(KEYS.koeder),
+      trips: readAll(KEYS.trips),
     };
   }
 
@@ -65,12 +67,14 @@ const Storage = (() => {
     if (Array.isArray(data.gewaesser)) writeAll(KEYS.gewaesser, data.gewaesser);
     if (Array.isArray(data.faenge)) writeAll(KEYS.faenge, data.faenge);
     if (Array.isArray(data.koeder)) writeAll(KEYS.koeder, data.koeder);
+    if (Array.isArray(data.trips)) writeAll(KEYS.trips, data.trips);
   }
 
   return {
     gewaesser: makeCrud(KEYS.gewaesser),
     faenge: makeCrud(KEYS.faenge),
     koeder: makeCrud(KEYS.koeder),
+    trips: makeCrud(KEYS.trips),
     exportAll,
     importAll,
   };

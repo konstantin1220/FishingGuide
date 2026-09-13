@@ -103,18 +103,24 @@ const Fuehrung = (() => {
       dur: '4.5s',
       keyPoints: '0;0.25;0.25;0.5;0.5;0.75;0.75;1',
       keyTimes: '0;0.15;0.40;0.55;0.75;0.85;0.95;1',
+      // Ruck (schnelles Beschleunigen, sanftes Ausschwingen) statt linearem Sprung, dazwischen echte Pausen.
+      keySplines: '0.05 0.7 0.1 1;0 0 1 1;0.05 0.7 0.1 1;0 0 1 1;0.05 0.7 0.1 1;0 0 1 1;0.05 0.7 0.1 1',
     }),
     jiggen: () => ({
       path: 'M15,85 C20,45 30,20 40,20 C50,20 55,50 60,85 C70,50 80,20 90,20 C100,20 105,50 110,85 C120,50 130,20 140,20 C150,20 155,50 160,85 C190,80 230,78 285,75',
       dur: '5s',
       keyPoints: '0;0.03;0.09;0.12;0.18;0.21;0.27;1',
       keyTimes: '0;0.03;0.20;0.23;0.40;0.43;0.60;1',
+      // Hub: sehr schnell raus (Rutenschlag). Absinken: sanft einschwingend, dann eher gleichmäßig (Wasserwiderstand).
+      keySplines: '0.1 0.9 0.2 1;0.4 0 0.6 1;0.1 0.9 0.2 1;0.4 0 0.6 1;0.1 0.9 0.2 1;0.4 0 0.6 1;0.35 0 0.65 1',
     }),
     stopandgo: () => ({
       path: 'M15,55 C60,50 90,60 100,55 C150,50 180,60 190,55 C240,50 270,60 285,55',
       dur: '4.5s',
       keyPoints: '0;0.33;0.33;0.66;0.66;1',
       keyTimes: '0;0.28;0.48;0.58;0.78;1',
+      // Anlaufen aus dem Stand, sanftes Auslaufen in die Pause statt Konstantfahrt.
+      keySplines: '0.42 0 0.58 1;0 0 1 1;0.42 0 0.58 1;0 0 1 1;0.42 0 0.58 1',
     }),
     schleppen: () => ({
       path: 'M15,80 C100,77 200,83 285,80',
@@ -126,8 +132,9 @@ const Fuehrung = (() => {
       ripples: [{ cx: 76, peak: 0.19 }, { cx: 171, peak: 0.52 }, { cx: 276, peak: 0.86 }],
     }),
     grund: () => ({
-      path: 'M150,93 L156,88 L144,88 L150,93',
-      dur: '2.5s',
+      // Weiche, kontinuierliche Mini-Drift statt scharfkantiger Schleife.
+      path: 'M155,90 C155,91.4 152.8,92.5 150,92.5 C147.2,92.5 145,91.4 145,90 C145,88.6 147.2,87.5 150,87.5 C152.8,87.5 155,88.6 155,90 Z',
+      dur: '4.5s',
     }),
   };
 
@@ -138,7 +145,7 @@ const Fuehrung = (() => {
     counter += 1;
     const uid = `fu-${key}-${counter}`;
     const keyAttrs = cfg.keyPoints
-      ? `keyPoints="${cfg.keyPoints}" keyTimes="${cfg.keyTimes}" calcMode="linear"`
+      ? `keyPoints="${cfg.keyPoints}" keyTimes="${cfg.keyTimes}" calcMode="spline" keySplines="${cfg.keySplines}"`
       : '';
     const groundRect = key === 'grund' ? `<rect x="0" y="93" width="300" height="17" fill="#4a3728" rx="0"/>` : '';
     const particles = key === 'grund' ? sedimentParticles(uid) : '';
