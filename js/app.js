@@ -1,7 +1,25 @@
 // Navigation + Rendering der Views. Kein Framework, direktes DOM-Rendering.
 (() => {
   const viewEl = document.getElementById('view');
+  const headerEl = document.getElementById('app-header');
+  const navEl = document.getElementById('bottom-nav');
   const navButtons = document.querySelectorAll('.nav-btn');
+
+  const FISCH_ARTEN = [
+    'Hecht', 'Zander', 'Barsch', 'Karpfen', 'Schleie', 'Aal', 'Wels',
+    'Bachforelle', 'Regenbogenforelle', 'Döbel', 'Rotauge', 'Rotfeder',
+    'Brasse', 'Rapfen', 'Äsche',
+  ];
+  const KOEDER_KATEGORIEN = [
+    'Kunstköder', 'Naturköder', 'Gummiköder', 'Wobbler', 'Blinker/Spoon',
+    'Spinner', 'Jig', 'Popper/Topwater', 'Boilie',
+  ];
+
+  navButtons.forEach(btn => {
+    const iconSpan = btn.querySelector('[data-icon]');
+    iconSpan.innerHTML = Icons.svg(iconSpan.dataset.icon);
+  });
+  document.getElementById('settings-btn').innerHTML = Icons.svg('gear', { size: 20 });
 
   const VIEWS = {
     start: renderStart,
@@ -10,13 +28,17 @@
     koeder: renderKoeder,
     wetter: renderWetter,
     einstellungen: renderEinstellungen,
+    impressum: () => renderImpressum(false),
   };
 
-  // Bearbeiten-Status je View (welcher Eintrag gerade im Formular bearbeitet wird)
+  // Bearbeiten-Status je View
   let gewaesserEditId = null;
   let fangEditId = null;
   let koederEditId = null;
   let koederExpandedId = null;
+  let wetterPreselectId = null;
+  let leafletMap = null;
+  let leafletMarker = null;
 
   function navigate(name) {
     navButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.view === name));
@@ -34,6 +56,10 @@
     return new Date(iso).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' });
   }
 
+  function fmtToday() {
+    return new Date().toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
+  }
+
   function toDatetimeLocalValue(date) {
     const pad = n => String(n).padStart(2, '0');
     return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
@@ -49,39 +75,134 @@
     return confirm(`„${label}" wirklich löschen?`);
   }
 
+  function weatherIconFor(code) {
+    if ([51, 53, 55, 61, 63, 65, 80, 81, 82, 95, 96, 99].includes(code)) return 'rain';
+    if ([2, 3, 45, 48].includes(code)) return 'cloud';
+    return 'weather';
+  }
+
+  // ---------- Login-Gate ----------
+  function renderLogin() {
+    viewEl.innerHTML = `
+      <section class="login-screen">
+        <div class="login-icon">${Icons.svg('lock', { size: 30 })}</div>
+        <h2>FishingGuide</h2>
+        <p class="muted">Diese App ist nur für einen ausgewählten Personenkreis. Bitte Zugangscode eingeben.</p>
+        <form id="login-form" class="card-form">
+          <input type="password" name="code" placeholder="Zugangscode" required autocomplete="off">
+          <input type="text" name="name" placeholder="Dein Name" required autocomplete="off">
+          <button type="submit">Anmelden</button>
+          <p id="login-error" class="login-error" hidden>Falscher Zugangscode. Bitte erneut versuchen.</p>
+        </form>
+        <button type="button" id="login-impressum-link" class="link-btn">Impressum &amp; Datenschutz</button>
+      </section>
+    `;
+
+    document.getElementById('login-form').addEventListener('submit', async e => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const ok = await Auth.checkCode(fd.get('code').trim());
+      const errorEl = document.getElementById('login-error');
+      if (ok) {
+        Auth.login(fd.get('name').trim() || 'Angler');
+        boot();
+      } else {
+        errorEl.hidden = false;
+      }
+    });
+
+    document.getElementById('login-impressum-link').addEventListener('click', () => renderImpressum(true));
+  }
+
+  // ---------- Impressum ----------
+  function renderImpressum(fromLogin) {
+    viewEl.innerHTML = `
+      <section class="view-section">
+        <h2>Impressum &amp; Datenschutz</h2>
+        <div class="card-form impressum">
+          <h3>Angaben gemäß § 5 DDG</h3>
+          <p>[DEIN NAME]<br>[DEINE STRASSE UND HAUSNUMMER]<br>[PLZ UND ORT]</p>
+          <p>Kontakt: [DEINE E-MAIL-ADRESSE]</p>
+          <p class="muted">Diese App wird privat und nicht-kommerziell betrieben und ist nur für einen begrenzten,
+            ausgewählten Personenkreis über einen Zugangscode erreichbar.</p>
+
+          <h3>Datenschutz</h3>
+          <p>Alle eingegebenen Daten (Gewässer, Fänge, Köder) werden ausschließlich lokal auf deinem Gerät
+            (<code>localStorage</code> deines Browsers) gespeichert. Es gibt keinen Server, der diese Daten
+            empfängt oder speichert.</p>
+          <p>Für Wetterdaten wird die Koordinate des gewählten Gewässers an
+            <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a> übertragen, für die
+            Kartenanzeige/-auswahl an <a href="https://www.openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a>.
+            Beide erhalten dabei nur Koordinaten, keine Namen oder Kontaktdaten.</p>
+          <p>Der Anzeigename beim Login wird ebenfalls nur lokal auf deinem Gerät gespeichert.</p>
+
+          <button type="button" id="impressum-back">${fromLogin ? 'Zurück zum Login' : 'Zurück'}</button>
+        </div>
+      </section>
+    `;
+
+    document.getElementById('impressum-back').addEventListener('click', () => {
+      if (fromLogin) renderLogin();
+      else navigate('einstellungen');
+    });
+  }
+
   // ---------- Start / Übersicht ----------
   function renderStart() {
     const faenge = Storage.faenge.list();
     const gewaesser = Storage.gewaesser.list();
     const koeder = Storage.koeder.list();
     const letzterFang = [...faenge].sort((a, b) => new Date(b.datum) - new Date(a.datum))[0];
+    const letzterKoeder = koeder[koeder.length - 1];
 
-    const cards = [
-      {
-        view: 'wetter', icon: '🌤️', title: 'Wetter-Tipps',
-        subtitle: gewaesser.length ? 'Live-Tipps für deine Gewässer' : 'Erst ein Gewässer anlegen',
-      },
-      { view: 'fanglog', icon: '🐟', title: 'Fanglog', subtitle: `${faenge.length} Fänge erfasst` },
-      { view: 'koeder', icon: '🪱', title: 'Köder', subtitle: `${koeder.length} im Bestand` },
-      { view: 'gewaesser', icon: '📍', title: 'Gewässer', subtitle: `${gewaesser.length} angelegt` },
-    ];
+    const wetterGewaesserId = localStorage.getItem('fg_last_wetter_gewaesser');
+    const wetterGewaesser = gewaesser.find(g => g.id === wetterGewaesserId) || gewaesser[0];
 
     viewEl.innerHTML = `
       <section class="view-section">
         <div class="hero">
-          <h2>Willkommen zurück 👋</h2>
-          <p class="muted">${letzterFang
-            ? `Dein letzter Fang: ${escapeHtml(letzterFang.art)} · ${fmtDate(letzterFang.datum)}`
-            : 'Noch keine Fänge erfasst – leg direkt los!'}</p>
+          <div class="hero-date">${fmtToday()}</div>
+          <h2>Angemeldet als ${escapeHtml(Auth.currentUser())}</h2>
         </div>
+
+        <div id="dash-weather" class="dash-weather-card">
+          ${wetterGewaesser
+            ? '<p class="muted">Lade Wetterdaten…</p>'
+            : `<div class="dash-weather-empty"><div>${Icons.svg('weather', { size: 26 })}</div>
+               <p>Noch kein Gewässer angelegt – lege eins an, um Live-Wetter-Tipps zu sehen.</p></div>`}
+        </div>
+
         <div class="dashboard-grid">
-          ${cards.map(c => `
-            <button class="dashboard-card" data-view="${c.view}">
-              <span class="dashboard-icon">${c.icon}</span>
-              <span class="dashboard-title">${c.title}</span>
-              <span class="dashboard-subtitle">${escapeHtml(c.subtitle)}</span>
-            </button>
-          `).join('')}
+          <button class="dashboard-card" data-view="fanglog">
+            <div class="dashboard-card-top">
+              <span class="dashboard-icon">${Icons.svg('fish')}</span>
+              <span class="dashboard-chevron">${Icons.svg('chevron', { size: 18 })}</span>
+            </div>
+            <span class="dashboard-title">Fanglog</span>
+            <span class="dashboard-subtitle">${letzterFang
+              ? `Zuletzt: ${escapeHtml(letzterFang.art)} · ${fmtDate(letzterFang.datum)}`
+              : `${faenge.length} Fänge erfasst`}</span>
+          </button>
+          <button class="dashboard-card" data-view="koeder">
+            <div class="dashboard-card-top">
+              <span class="dashboard-icon">${Icons.svg('bait')}</span>
+              <span class="dashboard-chevron">${Icons.svg('chevron', { size: 18 })}</span>
+            </div>
+            <span class="dashboard-title">Köder</span>
+            <span class="dashboard-subtitle">${letzterKoeder
+              ? `${koeder.length} im Bestand · zuletzt ${escapeHtml(letzterKoeder.name)}`
+              : 'Noch keine Köder angelegt'}</span>
+          </button>
+          <button class="dashboard-card dashboard-card-wide" data-view="gewaesser">
+            <div class="dashboard-card-top">
+              <span class="dashboard-icon">${Icons.svg('pin')}</span>
+              <span class="dashboard-chevron">${Icons.svg('chevron', { size: 18 })}</span>
+            </div>
+            <span class="dashboard-title">Gewässer</span>
+            <span class="dashboard-subtitle">${gewaesser.length
+              ? `${gewaesser.length} angelegt · Hauptgewässer: ${escapeHtml(gewaesser[0].name)}`
+              : 'Noch keine Gewässer angelegt'}</span>
+          </button>
         </div>
       </section>
     `;
@@ -89,23 +210,72 @@
     viewEl.querySelectorAll('.dashboard-card').forEach(btn =>
       btn.addEventListener('click', () => navigate(btn.dataset.view))
     );
+
+    if (wetterGewaesser) {
+      Weather.fetchCurrent(wetterGewaesser.lat, wetterGewaesser.lon).then(w => {
+        const el = document.getElementById('dash-weather');
+        if (!el) return;
+        el.innerHTML = `
+          <button type="button" class="dash-weather-inner" id="dash-weather-btn">
+            <span class="dash-weather-icon">${Icons.svg(weatherIconFor(w.weatherCode), { size: 30 })}</span>
+            <span class="dash-weather-main">
+              <span class="dash-weather-temp">${Math.round(w.temperature)}°C</span>
+              <span class="dash-weather-label">${w.weatherLabel} · ${escapeHtml(wetterGewaesser.name)}</span>
+              <span class="dash-weather-sub">Luftdruck ${w.pressureTrend.direction} · Wind ${Math.round(w.windSpeed)} km/h</span>
+            </span>
+            <span class="dashboard-chevron">${Icons.svg('chevron', { size: 18 })}</span>
+          </button>
+        `;
+        document.getElementById('dash-weather-btn').addEventListener('click', () => {
+          wetterPreselectId = wetterGewaesser.id;
+          navigate('wetter');
+        });
+      }).catch(() => {
+        const el = document.getElementById('dash-weather');
+        if (el) el.innerHTML = '<p class="muted">Wetterdaten aktuell nicht verfügbar.</p>';
+      });
+    }
   }
 
-  // ---------- Gewässer ----------
-  function updateMapPreview(container, lat, lon) {
-    const latNum = parseFloat(lat);
-    const lonNum = parseFloat(lon);
-    if (Number.isNaN(latNum) || Number.isNaN(lonNum)) {
-      container.innerHTML = '<p class="muted">Koordinaten eingeben, um eine Kartenvorschau zu sehen.</p>';
-      return;
+  // ---------- Gewässer (mit interaktiver Leaflet-Karte) ----------
+  function initMap(container, latInput, lonInput, editing) {
+    if (leafletMap) {
+      leafletMap.remove();
+      leafletMap = null;
+      leafletMarker = null;
     }
-    const d = 0.01;
-    const bbox = `${lonNum - d}%2C${latNum - d}%2C${lonNum + d}%2C${latNum + d}`;
-    container.innerHTML = `
-      <iframe class="map-preview-frame" loading="lazy"
-        src="https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${latNum}%2C${lonNum}">
-      </iframe>
-    `;
+
+    const startLat = editing ? editing.lat : 51.1657;
+    const startLon = editing ? editing.lon : 10.4515;
+
+    leafletMap = L.map(container).setView([startLat, startLon], editing ? 12 : 5.5);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap Mitwirkende',
+    }).addTo(leafletMap);
+
+    setTimeout(() => leafletMap && leafletMap.invalidateSize(), 0);
+
+    if (editing) placeMarker(editing.lat, editing.lon, latInput, lonInput);
+
+    leafletMap.on('click', e => {
+      latInput.value = e.latlng.lat.toFixed(5);
+      lonInput.value = e.latlng.lng.toFixed(5);
+      placeMarker(e.latlng.lat, e.latlng.lng, latInput, lonInput);
+    });
+  }
+
+  function placeMarker(lat, lon, latInput, lonInput) {
+    if (leafletMarker) {
+      leafletMarker.setLatLng([lat, lon]);
+    } else {
+      leafletMarker = L.marker([lat, lon], { draggable: true }).addTo(leafletMap);
+      leafletMarker.on('dragend', () => {
+        const pos = leafletMarker.getLatLng();
+        latInput.value = pos.lat.toFixed(5);
+        lonInput.value = pos.lng.toFixed(5);
+      });
+    }
   }
 
   function renderGewaesser() {
@@ -121,8 +291,9 @@
             <input type="number" step="any" name="lat" placeholder="Breitengrad (lat)" value="${editing ? editing.lat : ''}" required>
             <input type="number" step="any" name="lon" placeholder="Längengrad (lon)" value="${editing ? editing.lon : ''}" required>
           </div>
-          <button type="button" id="use-location">📍 Aktuellen Standort verwenden</button>
-          <div id="map-preview" class="map-preview"></div>
+          <button type="button" id="use-location">${Icons.svg('pin', { size: 18 })} Aktuellen Standort verwenden</button>
+          <p class="muted map-hint">Oder direkt auf die Karte klicken, um den Punkt zu setzen.</p>
+          <div id="map-live" class="map-live"></div>
           <textarea name="notiz" placeholder="Notiz (optional)">${editing ? escapeHtml(editing.notiz || '') : ''}</textarea>
           <div class="row">
             <button type="submit">${editing ? 'Speichern' : 'Gewässer hinzufügen'}</button>
@@ -137,7 +308,7 @@
                 <div class="muted">${g.lat}, ${g.lon}</div>
                 ${g.notiz ? `<div class="muted">${escapeHtml(g.notiz)}</div>` : ''}
               </div>
-              <button class="delete-btn" data-id="${g.id}" data-label="${escapeHtml(g.name)}">🗑️</button>
+              <button class="delete-btn" data-id="${g.id}" data-label="${escapeHtml(g.name)}">${Icons.svg('trash', { size: 18 })}</button>
             </li>
           `).join('') || '<li class="muted">Noch keine Gewässer angelegt.</li>'}
         </ul>
@@ -146,15 +317,23 @@
 
     const latInput = document.querySelector('[name="lat"]');
     const lonInput = document.querySelector('[name="lon"]');
-    const mapPreview = document.getElementById('map-preview');
-    updateMapPreview(mapPreview, latInput.value, lonInput.value);
+    const mapContainer = document.getElementById('map-live');
+    initMap(mapContainer, latInput, lonInput, editing);
+
     [latInput, lonInput].forEach(input =>
-      input.addEventListener('change', () => updateMapPreview(mapPreview, latInput.value, lonInput.value))
+      input.addEventListener('change', () => {
+        const lat = parseFloat(latInput.value);
+        const lon = parseFloat(lonInput.value);
+        if (!Number.isNaN(lat) && !Number.isNaN(lon)) {
+          placeMarker(lat, lon, latInput, lonInput);
+          leafletMap.setView([lat, lon], Math.max(leafletMap.getZoom(), 12));
+        }
+      })
     );
 
     document.getElementById('use-location').addEventListener('click', () => {
       if (!window.isSecureContext) {
-        alert('Standortzugriff erfordert eine sichere Verbindung (HTTPS) oder localhost. Bitte Koordinaten manuell eingeben.');
+        alert('Standortzugriff erfordert eine sichere Verbindung (HTTPS) oder localhost. Bitte Koordinaten manuell eingeben oder auf der Karte klicken.');
         return;
       }
       if (!navigator.geolocation) {
@@ -165,12 +344,13 @@
         pos => {
           latInput.value = pos.coords.latitude.toFixed(5);
           lonInput.value = pos.coords.longitude.toFixed(5);
-          updateMapPreview(mapPreview, latInput.value, lonInput.value);
+          placeMarker(pos.coords.latitude, pos.coords.longitude, latInput, lonInput);
+          leafletMap.setView([pos.coords.latitude, pos.coords.longitude], 13);
         },
         err => {
           const messages = {
-            1: 'Standortzugriff wurde verweigert. Bitte in den Browser-/Systemeinstellungen erlauben oder Koordinaten manuell eingeben.',
-            2: 'Standort konnte nicht ermittelt werden (kein Signal?). Bitte manuell eingeben.',
+            1: 'Standortzugriff wurde verweigert. Bitte in den Browser-/Systemeinstellungen erlauben, Koordinaten manuell eingeben oder auf der Karte klicken.',
+            2: 'Standort konnte nicht ermittelt werden (kein Signal?). Bitte manuell eingeben oder auf der Karte klicken.',
             3: 'Zeitüberschreitung bei der Standortermittlung. Bitte erneut versuchen.',
           };
           alert(messages[err.code] || 'Unbekannter Fehler bei der Standortermittlung.');
@@ -224,23 +404,31 @@
     const kName = id => koeder.find(k => k.id === id)?.name || '–';
     const editing = fangEditId ? items.find(f => f.id === fangEditId) : null;
 
+    const lastGewaesserId = !editing && localStorage.getItem('fg_last_gewaesser');
+    const lastKoederId = !editing && localStorage.getItem('fg_last_koeder');
+    const defaultGewaesserId = editing?.gewaesserId ?? (gewaesser.some(g => g.id === lastGewaesserId) ? lastGewaesserId : '');
+    const defaultKoederId = editing?.koederId ?? (koeder.some(k => k.id === lastKoederId) ? lastKoederId : '');
+
     viewEl.innerHTML = `
       <section class="view-section">
         <h2>Fanglog</h2>
         ${gewaesser.length === 0 ? '<p class="muted">Erst unter „Gewässer" ein Gewässer anlegen, um Fänge zu erfassen.</p>' : `
         <form id="fang-form" class="card-form">
-          <input type="text" name="art" placeholder="Fischart" value="${editing ? escapeHtml(editing.art) : ''}" required>
+          <input type="text" name="art" list="fischarten-liste" placeholder="Fischart" value="${editing ? escapeHtml(editing.art) : ''}" required>
+          <datalist id="fischarten-liste">
+            ${FISCH_ARTEN.map(a => `<option value="${a}">`).join('')}
+          </datalist>
           <div class="row">
-            <input type="number" step="any" name="laenge" placeholder="Länge (cm)" value="${editing?.laenge ?? ''}">
-            <input type="number" step="any" name="gewicht" placeholder="Gewicht (g)" value="${editing?.gewicht ?? ''}">
+            <input type="number" step="any" min="0" name="laenge" placeholder="Länge (cm)" value="${editing?.laenge ?? ''}">
+            <input type="number" step="any" min="0" name="gewicht" placeholder="Gewicht (g)" value="${editing?.gewicht ?? ''}">
           </div>
           <select name="gewaesserId" required>
-            <option value="" disabled ${editing ? '' : 'selected'}>Gewässer wählen</option>
-            ${gewaesser.map(g => `<option value="${g.id}" ${editing?.gewaesserId === g.id ? 'selected' : ''}>${escapeHtml(g.name)}</option>`).join('')}
+            <option value="" disabled ${defaultGewaesserId ? '' : 'selected'}>Gewässer wählen</option>
+            ${gewaesser.map(g => `<option value="${g.id}" ${defaultGewaesserId === g.id ? 'selected' : ''}>${escapeHtml(g.name)}</option>`).join('')}
           </select>
           <select name="koederId">
             <option value="">Köder (optional)</option>
-            ${koeder.map(k => `<option value="${k.id}" ${editing?.koederId === k.id ? 'selected' : ''}>${escapeHtml(k.name)}</option>`).join('')}
+            ${koeder.map(k => `<option value="${k.id}" ${defaultKoederId === k.id ? 'selected' : ''}>${escapeHtml(k.name)}</option>`).join('')}
           </select>
           <input type="datetime-local" name="datum" required>
           <textarea name="notiz" placeholder="Notiz (optional)">${editing ? escapeHtml(editing.notiz || '') : ''}</textarea>
@@ -259,7 +447,7 @@
                 <div class="muted">${fmtDate(f.datum)} · ${escapeHtml(gName(f.gewaesserId))}${f.koederId ? ' · ' + escapeHtml(kName(f.koederId)) : ''}</div>
                 ${f.notiz ? `<div class="muted">${escapeHtml(f.notiz)}</div>` : ''}
               </div>
-              <button class="delete-btn" data-id="${f.id}" data-label="${escapeHtml(f.art)}">🗑️</button>
+              <button class="delete-btn" data-id="${f.id}" data-label="${escapeHtml(f.art)}">${Icons.svg('trash', { size: 18 })}</button>
             </li>
           `).join('') || '<li class="muted">Noch keine Fänge erfasst.</li>'}
         </ul>
@@ -286,6 +474,8 @@
           Storage.faenge.update(fangEditId, data);
         } else {
           Storage.faenge.add(data);
+          localStorage.setItem('fg_last_gewaesser', data.gewaesserId);
+          if (data.koederId) localStorage.setItem('fg_last_koeder', data.koederId);
         }
         fangEditId = null;
         renderFanglog();
@@ -327,7 +517,10 @@
           </select>
           `}
           <input type="text" name="name" placeholder="Name (z.B. Gummifisch Weiß 8cm)" value="${editing ? escapeHtml(editing.name) : ''}" required>
-          <input type="text" name="kategorie" placeholder="Kategorie (z.B. Gummiköder, Wobbler, Spinner)" value="${editing ? escapeHtml(editing.kategorie || '') : ''}">
+          <input type="text" name="kategorie" list="koeder-kategorien" placeholder="Kategorie (z.B. Gummiköder, Wobbler, Spinner)" value="${editing ? escapeHtml(editing.kategorie || '') : ''}">
+          <datalist id="koeder-kategorien">
+            ${KOEDER_KATEGORIEN.map(k => `<option value="${k}">`).join('')}
+          </datalist>
           <select name="fuehrung">
             <option value="">Führungstechnik (optional)</option>
             ${Object.entries(techniken).map(([key, t]) => `<option value="${key}" ${editing?.fuehrung === key ? 'selected' : ''}>${escapeHtml(t.label)}</option>`).join('')}
@@ -350,12 +543,13 @@
                 </div>
                 ${k.fuehrung && techniken[k.fuehrung] ? `
                   <button type="button" class="link-btn toggle-fuehrung" data-id="${k.id}">
-                    🎣 ${koederExpandedId === k.id ? 'Führung ausblenden' : 'Wie führe ich das?'}
+                    ${Icons.svg('chevron', { size: 14, class: koederExpandedId === k.id ? 'chevron-open' : '' })}
+                    ${koederExpandedId === k.id ? 'Führung ausblenden' : 'Wie führe ich das?'}
                   </button>
                   ${koederExpandedId === k.id ? Fuehrung.renderInfo(k.fuehrung) : ''}
                 ` : ''}
               </div>
-              <button class="delete-btn" data-id="${k.id}" data-label="${escapeHtml(k.name)}">🗑️</button>
+              <button class="delete-btn" data-id="${k.id}" data-label="${escapeHtml(k.name)}">${Icons.svg('trash', { size: 18 })}</button>
             </li>
           `).join('') || '<li class="muted">Noch keine Köder angelegt.</li>'}
         </ul>
@@ -433,11 +627,14 @@
       return;
     }
 
+    const preselect = wetterPreselectId && gewaesser.some(g => g.id === wetterPreselectId) ? wetterPreselectId : gewaesser[0].id;
+    wetterPreselectId = null;
+
     viewEl.innerHTML = `
       <section class="view-section">
         <h2>Wetter-Tipps</h2>
         <select id="wetter-gewaesser">
-          ${gewaesser.map(g => `<option value="${g.id}">${escapeHtml(g.name)}</option>`).join('')}
+          ${gewaesser.map(g => `<option value="${g.id}" ${g.id === preselect ? 'selected' : ''}>${escapeHtml(g.name)}</option>`).join('')}
         </select>
         <div id="wetter-result" class="wetter-result">
           <p class="muted">Lade Wetterdaten…</p>
@@ -448,6 +645,7 @@
     const select = document.getElementById('wetter-gewaesser');
     const loadFor = async id => {
       const g = gewaesser.find(x => x.id === id);
+      localStorage.setItem('fg_last_wetter_gewaesser', id);
       const resultEl = document.getElementById('wetter-result');
       resultEl.innerHTML = '<p class="muted">Lade Wetterdaten…</p>';
       try {
@@ -455,6 +653,7 @@
         const tips = Tips.getTips(w);
         resultEl.innerHTML = `
           <div class="weather-card">
+            <span class="weather-card-icon">${Icons.svg(weatherIconFor(w.weatherCode), { size: 32 })}</span>
             <div class="weather-main">${w.weatherLabel} · ${Math.round(w.temperature)}°C</div>
             <div class="muted">
               Luftdruck: ${w.pressure} hPa (${w.pressureTrend.direction}, ${w.pressureTrend.diff > 0 ? '+' : ''}${w.pressureTrend.diff} hPa/3h)
@@ -490,10 +689,13 @@
       <section class="view-section">
         <h2>Einstellungen</h2>
         <div class="card-form">
+          <p class="muted">Angemeldet als <strong>${escapeHtml(Auth.currentUser())}</strong></p>
           <p class="muted">${gewaesser.length} Gewässer · ${faenge.length} Fänge · ${koeder.length} Köder — alle Daten liegen nur lokal auf diesem Gerät.</p>
-          <button type="button" id="export-btn">⬇️ Daten exportieren (Backup)</button>
-          <button type="button" id="import-btn" class="secondary-btn">⬆️ Daten importieren</button>
+          <button type="button" id="export-btn">${Icons.svg('download', { size: 18 })} Daten exportieren (Backup)</button>
+          <button type="button" id="import-btn" class="secondary-btn">${Icons.svg('upload', { size: 18 })} Daten importieren</button>
           <input type="file" id="import-file" accept="application/json" hidden>
+          <button type="button" id="impressum-btn" class="secondary-btn">${Icons.svg('info', { size: 18 })} Impressum &amp; Datenschutz</button>
+          <button type="button" id="logout-btn" class="secondary-btn">${Icons.svg('logout', { size: 18 })} Abmelden</button>
         </div>
       </section>
     `;
@@ -530,15 +732,39 @@
       }
       e.target.value = '';
     });
-  }
 
-  // ---------- Start ----------
-  const initial = location.hash.replace('#', '') || 'start';
-  navigate(VIEWS[initial] ? initial : 'start');
+    document.getElementById('impressum-btn').addEventListener('click', () => navigate('impressum'));
 
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('sw.js').catch(() => {});
+    document.getElementById('logout-btn').addEventListener('click', () => {
+      if (!confirm('Wirklich abmelden?')) return;
+      Auth.logout();
+      location.reload();
     });
   }
+
+  // ---------- Boot ----------
+  function boot() {
+    headerEl.hidden = false;
+    navEl.hidden = false;
+    const initial = location.hash.replace('#', '') || 'start';
+    navigate(VIEWS[initial] ? initial : 'start');
+
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js').catch(() => {});
+      });
+    }
+  }
+
+  function init() {
+    if (Auth.isLoggedIn()) {
+      boot();
+    } else {
+      headerEl.hidden = true;
+      navEl.hidden = true;
+      renderLogin();
+    }
+  }
+
+  init();
 })();

@@ -1,11 +1,13 @@
 // Cached die App-Shell, damit die App auch ohne Netzverbindung startet.
 // Live-Wetterdaten (Open-Meteo) brauchen weiterhin eine Verbindung.
-const CACHE_NAME = 'fishingguide-v3';
+const CACHE_NAME = 'fishingguide-v4';
 const APP_SHELL = [
   './',
   './index.html',
   './css/style.css',
   './js/app.js',
+  './js/auth.js',
+  './js/icons.js',
   './js/storage.js',
   './js/weather.js',
   './js/tips.js',

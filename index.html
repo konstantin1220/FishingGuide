@@ -11,34 +11,38 @@
 <meta name="apple-mobile-web-app-title" content="FishingGuide">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-<header class="app-header">
-  <h1>🎣 FishingGuide</h1>
-  <button id="settings-btn" class="settings-btn" aria-label="Einstellungen">⚙️</button>
+<header class="app-header" id="app-header" hidden>
+  <h1>FishingGuide</h1>
+  <button id="settings-btn" class="settings-btn" aria-label="Einstellungen"></button>
 </header>
 
 <main id="view"></main>
 
-<nav class="bottom-nav">
+<nav class="bottom-nav" id="bottom-nav" hidden>
   <button class="nav-btn" data-view="start">
-    <span class="nav-icon">🏠</span><span>Start</span>
+    <span class="nav-icon" data-icon="home"></span><span>Start</span>
   </button>
   <button class="nav-btn" data-view="wetter">
-    <span class="nav-icon">🌤️</span><span>Wetter</span>
+    <span class="nav-icon" data-icon="weather"></span><span>Wetter</span>
   </button>
   <button class="nav-btn" data-view="fanglog">
-    <span class="nav-icon">🐟</span><span>Fanglog</span>
+    <span class="nav-icon" data-icon="fish"></span><span>Fanglog</span>
   </button>
   <button class="nav-btn" data-view="koeder">
-    <span class="nav-icon">🪱</span><span>Köder</span>
+    <span class="nav-icon" data-icon="bait"></span><span>Köder</span>
   </button>
   <button class="nav-btn" data-view="gewaesser">
-    <span class="nav-icon">📍</span><span>Gewässer</span>
+    <span class="nav-icon" data-icon="pin"></span><span>Gewässer</span>
   </button>
 </nav>
 
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="js/icons.js"></script>
+<script src="js/auth.js"></script>
 <script src="js/storage.js"></script>
 <script src="js/weather.js"></script>
 <script src="js/tips.js"></script>
