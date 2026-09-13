@@ -1,11 +1,14 @@
 :root {
   --primary: #0f4c5c;
-  --primary-light: #147a8f;
-  --bg: #f4f7f7;
+  --primary-light: #1a8fa8;
+  --accent: #ff8c42;
+  --bg: #eef3f3;
   --card-bg: #ffffff;
   --text: #1c2b2d;
-  --muted: #6b7a7c;
-  --border: #e0e6e6;
+  --muted: #718283;
+  --border: #e3e9e9;
+  --shadow: 0 2px 10px rgba(15, 76, 92, 0.08);
+  --shadow-lg: 0 8px 24px rgba(15, 76, 92, 0.14);
   --danger: #c0392b;
 }
 
@@ -16,44 +19,103 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   background: var(--bg);
   color: var(--text);
-  padding-bottom: calc(64px + env(safe-area-inset-bottom));
+  padding-bottom: calc(76px + env(safe-area-inset-bottom));
 }
 
 .app-header {
-  background: var(--primary);
+  background: linear-gradient(135deg, var(--primary), var(--primary-light));
   color: white;
-  padding: 16px max(16px, env(safe-area-inset-left));
+  padding: 18px max(20px, env(safe-area-inset-left));
   position: sticky;
   top: 0;
   z-index: 10;
+  box-shadow: var(--shadow);
 }
 
 .app-header h1 {
   margin: 0;
-  font-size: 1.3rem;
+  font-size: 1.25rem;
+  letter-spacing: 0.01em;
 }
 
 main#view {
-  padding: 16px max(16px, env(safe-area-inset-left));
+  padding: 20px max(16px, env(safe-area-inset-left));
   max-width: 640px;
   margin: 0 auto;
 }
 
 .view-section h2 {
   margin-top: 0;
-  font-size: 1.1rem;
+  font-size: 1.15rem;
   color: var(--primary);
 }
 
+/* ---------- Start / Dashboard ---------- */
+
+.hero {
+  margin-bottom: 20px;
+}
+
+.hero h2 {
+  margin: 0 0 4px;
+  font-size: 1.4rem;
+  color: var(--text);
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.dashboard-card {
+  background: var(--card-bg);
+  border: none;
+  border-radius: 16px;
+  padding: 18px 14px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.dashboard-card:active {
+  transform: scale(0.97);
+  box-shadow: var(--shadow-lg);
+}
+
+.dashboard-icon {
+  font-size: 1.8rem;
+  margin-bottom: 6px;
+}
+
+.dashboard-title {
+  font-weight: 600;
+  font-size: 1rem;
+  color: var(--text);
+}
+
+.dashboard-subtitle {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+/* ---------- Formulare ---------- */
+
 .card-form {
   background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 14px;
+  border: none;
+  border-radius: 14px;
+  padding: 16px;
   display: flex;
   flex-direction: column;
   gap: 10px;
   margin-bottom: 20px;
+  box-shadow: var(--shadow);
 }
 
 .card-form .row {
@@ -65,12 +127,21 @@ main#view {
 .card-form select,
 .card-form textarea {
   width: 100%;
-  padding: 10px 12px;
+  padding: 11px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
   font-size: 1rem;
   background: var(--bg);
   color: var(--text);
+  font-family: inherit;
+}
+
+.card-form input:focus,
+.card-form select:focus,
+.card-form textarea:focus {
+  outline: none;
+  border-color: var(--primary-light);
+  background: white;
 }
 
 .card-form textarea {
@@ -79,11 +150,11 @@ main#view {
 }
 
 .card-form button[type="submit"] {
-  background: var(--primary);
+  background: var(--accent);
   color: white;
   border: none;
   border-radius: 8px;
-  padding: 12px;
+  padding: 13px;
   font-size: 1rem;
   font-weight: 600;
   cursor: pointer;
@@ -99,6 +170,8 @@ main#view {
   font-size: 0.9rem;
 }
 
+/* ---------- Listen ---------- */
+
 .list {
   list-style: none;
   margin: 0;
@@ -110,13 +183,14 @@ main#view {
 
 .list-item {
   background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 12px;
+  border: none;
+  border-radius: 12px;
+  padding: 14px;
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 8px;
+  box-shadow: var(--shadow);
 }
 
 .muted {
@@ -130,18 +204,22 @@ main#view {
   font-size: 1.1rem;
   cursor: pointer;
   padding: 4px;
+  opacity: 0.6;
 }
 
+/* ---------- Wetter ---------- */
+
 .weather-card {
-  background: var(--primary);
+  background: linear-gradient(135deg, var(--primary), var(--primary-light));
   color: white;
-  border-radius: 12px;
-  padding: 16px;
+  border-radius: 16px;
+  padding: 18px;
   margin-bottom: 16px;
+  box-shadow: var(--shadow-lg);
 }
 
 .weather-card .weather-main {
-  font-size: 1.4rem;
+  font-size: 1.5rem;
   font-weight: 600;
 }
 
@@ -151,11 +229,12 @@ main#view {
 
 #wetter-gewaesser {
   width: 100%;
-  padding: 10px 12px;
+  padding: 11px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
   font-size: 1rem;
   margin-bottom: 16px;
+  background: var(--card-bg);
 }
 
 .tips-list {
@@ -169,10 +248,11 @@ main#view {
 
 .tip-item {
   background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-left: 4px solid var(--primary-light);
-  border-radius: 8px;
-  padding: 10px 12px;
+  border: none;
+  border-left: 4px solid var(--accent);
+  border-radius: 10px;
+  padding: 12px 14px;
+  box-shadow: var(--shadow);
 }
 
 .tip-item p {
@@ -181,12 +261,14 @@ main#view {
 
 .tip-kategorie {
   display: inline-block;
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: 0.72rem;
+  font-weight: 700;
   text-transform: uppercase;
   color: var(--primary-light);
-  letter-spacing: 0.03em;
+  letter-spacing: 0.04em;
 }
+
+/* ---------- Navigation ---------- */
 
 .bottom-nav {
   position: fixed;
@@ -198,26 +280,29 @@ main#view {
   border-top: 1px solid var(--border);
   padding-bottom: env(safe-area-inset-bottom);
   z-index: 10;
+  box-shadow: 0 -2px 10px rgba(15, 76, 92, 0.06);
 }
 
 .nav-btn {
   flex: 1;
   background: none;
   border: none;
-  padding: 10px 4px 8px;
+  padding: 10px 2px 8px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
-  font-size: 0.7rem;
+  gap: 3px;
+  font-size: 0.65rem;
   color: var(--muted);
   cursor: pointer;
 }
 
 .nav-btn .nav-icon {
-  font-size: 1.3rem;
+  font-size: 1.25rem;
+  line-height: 1;
 }
 
 .nav-btn.active {
   color: var(--primary);
+  font-weight: 600;
 }

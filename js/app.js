@@ -4,6 +4,7 @@
   const navButtons = document.querySelectorAll('.nav-btn');
 
   const VIEWS = {
+    start: renderStart,
     gewaesser: renderGewaesser,
     fanglog: renderFanglog,
     koeder: renderKoeder,
@@ -26,6 +27,48 @@
     return String(str ?? '').replace(/[&<>"']/g, c => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
     }[c]));
+  }
+
+  // ---------- Start / Übersicht ----------
+  function renderStart() {
+    const faenge = Storage.faenge.list();
+    const gewaesser = Storage.gewaesser.list();
+    const koeder = Storage.koeder.list();
+    const letzterFang = [...faenge].sort((a, b) => new Date(b.datum) - new Date(a.datum))[0];
+
+    const cards = [
+      {
+        view: 'wetter', icon: '🌤️', title: 'Wetter-Tipps',
+        subtitle: gewaesser.length ? 'Live-Tipps für deine Gewässer' : 'Erst ein Gewässer anlegen',
+      },
+      { view: 'fanglog', icon: '🐟', title: 'Fanglog', subtitle: `${faenge.length} Fänge erfasst` },
+      { view: 'koeder', icon: '🪱', title: 'Köder', subtitle: `${koeder.length} im Bestand` },
+      { view: 'gewaesser', icon: '📍', title: 'Gewässer', subtitle: `${gewaesser.length} angelegt` },
+    ];
+
+    viewEl.innerHTML = `
+      <section class="view-section">
+        <div class="hero">
+          <h2>Willkommen zurück 👋</h2>
+          <p class="muted">${letzterFang
+            ? `Dein letzter Fang: ${escapeHtml(letzterFang.art)} · ${fmtDate(letzterFang.datum)}`
+            : 'Noch keine Fänge erfasst – leg direkt los!'}</p>
+        </div>
+        <div class="dashboard-grid">
+          ${cards.map(c => `
+            <button class="dashboard-card" data-view="${c.view}">
+              <span class="dashboard-icon">${c.icon}</span>
+              <span class="dashboard-title">${c.title}</span>
+              <span class="dashboard-subtitle">${escapeHtml(c.subtitle)}</span>
+            </button>
+          `).join('')}
+        </div>
+      </section>
+    `;
+
+    viewEl.querySelectorAll('.dashboard-card').forEach(btn =>
+      btn.addEventListener('click', () => navigate(btn.dataset.view))
+    );
   }
 
   // ---------- Gewässer ----------
@@ -277,8 +320,8 @@
   }
 
   // ---------- Start ----------
-  const initial = location.hash.replace('#', '') || 'wetter';
-  navigate(VIEWS[initial] ? initial : 'wetter');
+  const initial = location.hash.replace('#', '') || 'start';
+  navigate(VIEWS[initial] ? initial : 'start');
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
