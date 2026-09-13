@@ -51,9 +51,27 @@ const Storage = (() => {
     };
   }
 
+  function exportAll() {
+    return {
+      exportedAt: new Date().toISOString(),
+      gewaesser: readAll(KEYS.gewaesser),
+      faenge: readAll(KEYS.faenge),
+      koeder: readAll(KEYS.koeder),
+    };
+  }
+
+  function importAll(data) {
+    if (!data || typeof data !== 'object') throw new Error('Ungültiges Datenformat');
+    if (Array.isArray(data.gewaesser)) writeAll(KEYS.gewaesser, data.gewaesser);
+    if (Array.isArray(data.faenge)) writeAll(KEYS.faenge, data.faenge);
+    if (Array.isArray(data.koeder)) writeAll(KEYS.koeder, data.koeder);
+  }
+
   return {
     gewaesser: makeCrud(KEYS.gewaesser),
     faenge: makeCrud(KEYS.faenge),
     koeder: makeCrud(KEYS.koeder),
+    exportAll,
+    importAll,
   };
 })();

@@ -30,12 +30,26 @@ body {
   top: 0;
   z-index: 10;
   box-shadow: var(--shadow);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .app-header h1 {
   margin: 0;
   font-size: 1.25rem;
   letter-spacing: 0.01em;
+}
+
+.settings-btn {
+  background: rgba(255, 255, 255, 0.15);
+  border: none;
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  font-size: 1.1rem;
+  cursor: pointer;
+  line-height: 1;
 }
 
 main#view {
@@ -149,10 +163,26 @@ main#view {
   min-height: 48px;
 }
 
-.card-form button[type="submit"] {
+.card-form button[type="submit"],
+.card-form > button:not(.secondary-btn):not(#use-location) {
   background: var(--accent);
   color: white;
   border: none;
+  border-radius: 8px;
+  padding: 13px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.card-form .row button {
+  flex: 1;
+}
+
+.secondary-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text);
   border-radius: 8px;
   padding: 13px;
   font-size: 1rem;
@@ -168,6 +198,20 @@ main#view {
   padding: 8px;
   cursor: pointer;
   font-size: 0.9rem;
+}
+
+.map-preview {
+  border-radius: 8px;
+  overflow: hidden;
+  min-height: 40px;
+}
+
+.map-preview-frame {
+  width: 100%;
+  height: 160px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: block;
 }
 
 /* ---------- Listen ---------- */
@@ -193,6 +237,15 @@ main#view {
   box-shadow: var(--shadow);
 }
 
+.list-item-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.list-item-summary {
+  cursor: pointer;
+}
+
 .muted {
   color: var(--muted);
   font-size: 0.85rem;
@@ -205,6 +258,46 @@ main#view {
   cursor: pointer;
   padding: 4px;
   opacity: 0.6;
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--primary-light);
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 6px 0 0;
+  cursor: pointer;
+}
+
+/* ---------- Köderführung ---------- */
+
+.fuehrung-info {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.fuehrung-svg {
+  width: 100%;
+  height: auto;
+  border-radius: 10px;
+  display: block;
+}
+
+.fuehrung-text {
+  margin-top: 8px;
+}
+
+.fuehrung-text strong {
+  color: var(--primary);
+  font-size: 0.9rem;
+}
+
+.fuehrung-text p {
+  margin: 4px 0 0;
+  font-size: 0.85rem;
+  color: var(--muted);
 }
 
 /* ---------- Wetter ---------- */

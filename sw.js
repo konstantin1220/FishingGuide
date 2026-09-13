@@ -1,6 +1,6 @@
 // Cached die App-Shell, damit die App auch ohne Netzverbindung startet.
 // Live-Wetterdaten (Open-Meteo) brauchen weiterhin eine Verbindung.
-const CACHE_NAME = 'fishingguide-v2';
+const CACHE_NAME = 'fishingguide-v3';
 const APP_SHELL = [
   './',
   './index.html',
@@ -9,6 +9,8 @@ const APP_SHELL = [
   './js/storage.js',
   './js/weather.js',
   './js/tips.js',
+  './js/koederPresets.js',
+  './js/fuehrung.js',
   './manifest.json',
   './icons/icon-192.png',
   './icons/icon-512.png',
@@ -30,8 +32,8 @@ self.addEventListener('activate', event => {
 
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
-  // Wetter-API immer live abrufen, niemals aus dem Cache.
-  if (url.hostname.includes('open-meteo.com')) return;
+  // Wetter-API und Kartenvorschau immer live abrufen, niemals aus dem Cache.
+  if (url.hostname.includes('open-meteo.com') || url.hostname.includes('openstreetmap.org')) return;
 
   event.respondWith(
     caches.match(event.request).then(cached => cached || fetch(event.request))
