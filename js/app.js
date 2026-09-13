@@ -91,8 +91,40 @@
     return new Date(dateStr).toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' });
   }
 
-  function fmtDayDate(dateStr) {
-    return new Date(dateStr).toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: 'long' });
+  function fmtDayMonth(dateStr) {
+    return new Date(dateStr).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+  }
+
+  function fmtStopRange(von, bis) {
+    return von === bis ? fmtDayMonth(von) : `${fmtDayMonth(von)}–${fmtDayMonth(bis)}`;
+  }
+
+  // ---------- Trips: Datenmodell-Helfer (Multi-Stop) ----------
+  function normalizeTrip(t) {
+    if (Array.isArray(t.stops)) return t;
+    return { ...t, stops: [{ gewaesserId: t.gewaesserId, von: t.datum, bis: t.datum }] };
+  }
+
+  function tripsNormalized() {
+    return Storage.trips.list().map(normalizeTrip);
+  }
+
+  function tripStartDate(trip) {
+    return trip.stops.reduce((min, s) => (s.von < min ? s.von : min), trip.stops[0].von);
+  }
+
+  function tripEndDate(trip) {
+    return trip.stops.reduce((max, s) => (s.bis > max ? s.bis : max), trip.stops[0].bis);
+  }
+
+  function flattenUpcomingStops(heute) {
+    const out = [];
+    tripsNormalized().forEach(t => {
+      t.stops.forEach(s => {
+        if (s.bis >= heute) out.push({ tripId: t.id, tripName: t.name, gewaesserId: s.gewaesserId, von: s.von, bis: s.bis });
+      });
+    });
+    return out.sort((a, b) => a.von.localeCompare(b.von));
   }
 
   function pseudoWeatherFromForecastDay(day) {
@@ -178,12 +210,10 @@
     const faenge = Storage.faenge.list();
     const gewaesser = Storage.gewaesser.list();
     const koeder = Storage.koeder.list();
-    const trips = Storage.trips.list();
     const letzterFang = [...faenge].sort((a, b) => new Date(b.datum) - new Date(a.datum))[0];
     const letzterKoeder = koeder[koeder.length - 1];
     const heute = new Date().toISOString().slice(0, 10);
-    const kommendeTrips = trips.filter(t => t.datum >= heute).sort((a, b) => a.datum.localeCompare(b.datum));
-    const naechsterTrip = kommendeTrips[0];
+    const naechsterStop = flattenUpcomingStops(heute)[0];
 
     const wetterGewaesserId = localStorage.getItem('fg_last_wetter_gewaesser');
     const wetterGewaesser = gewaesser.find(g => g.id === wetterGewaesserId) || gewaesser[0];
@@ -229,8 +259,8 @@
               <span class="dashboard-chevron">${Icons.svg('chevron', { size: 18 })}</span>
             </div>
             <span class="dashboard-title">Trips</span>
-            <span class="dashboard-subtitle">${naechsterTrip
-              ? `Nächster: ${fmtShortDate(naechsterTrip.datum)} · ${escapeHtml(gewaesser.find(g => g.id === naechsterTrip.gewaesserId)?.name || '–')}`
+            <span class="dashboard-subtitle">${naechsterStop
+              ? `Nächster: ${fmtStopRange(naechsterStop.von, naechsterStop.bis)} · ${escapeHtml(gewaesser.find(g => g.id === naechsterStop.gewaesserId)?.name || '–')}`
               : 'Noch kein Trip geplant'}</span>
           </button>
           <button class="dashboard-card" data-view="gewaesser">
@@ -295,6 +325,11 @@
     }).addTo(leafletMap);
 
     setTimeout(() => leafletMap && leafletMap.invalidateSize(), 0);
+
+    // Mausrad-Zoom erst nach Klick in die Karte aktivieren, sonst hijackt die
+    // Karte beim Seiten-Scrollen versehentlich das Mausrad.
+    leafletMap.on('click', () => leafletMap.scrollWheelZoom.enable());
+    leafletMap.on('mouseout', () => leafletMap.scrollWheelZoom.disable());
 
     if (editing) placeMarker(editing.lat, editing.lon, latInput, lonInput, { suggestName: false });
 
@@ -741,20 +776,20 @@
   }
 
   // ---------- Wetter-Tipps ----------
-  async function loadTripPreview(trip, gewaesserList) {
-    const card = document.querySelector(`.trip-mini-card[data-id="${trip.id}"]`);
+  async function loadStopPreview(stop, gewaesserList, cardSelector) {
+    const card = document.querySelector(cardSelector);
     if (!card) return;
-    const g = gewaesserList.find(x => x.id === trip.gewaesserId);
+    const g = gewaesserList.find(x => x.id === stop.gewaesserId);
     if (!g) {
       card.innerHTML = '<p class="muted">Gewässer nicht gefunden.</p>';
       return;
     }
     try {
       const w = await Weather.fetchCurrent(g.lat, g.lon);
-      const day = w.forecast.find(d => d.date === trip.datum);
+      const day = w.forecast.find(d => d.date === stop.von);
       if (!day) {
         card.innerHTML = `
-          <div class="trip-mini-head"><strong>${escapeHtml(trip.name || g.name)}</strong><span class="muted">${fmtShortDate(trip.datum)}</span></div>
+          <div class="trip-mini-head"><strong>${escapeHtml(stop.tripName || g.name)}</strong><span class="muted">${fmtStopRange(stop.von, stop.bis)}</span></div>
           <p class="muted">Prognose noch nicht verfügbar (zu weit in der Zukunft).</p>
         `;
         return;
@@ -763,8 +798,8 @@
       const tips = Tips.getTips(pseudo);
       card.innerHTML = `
         <div class="trip-mini-head">
-          <strong>${escapeHtml(trip.name || g.name)}</strong>
-          <span class="muted">${fmtShortDate(trip.datum)} · ${escapeHtml(g.name)}</span>
+          <strong>${escapeHtml(stop.tripName || g.name)}</strong>
+          <span class="muted">${fmtStopRange(stop.von, stop.bis)} · ${escapeHtml(g.name)}</span>
         </div>
         <div class="trip-mini-weather">
           ${Icons.svg(weatherIconFor(day.weatherCode), { size: 22 })}
@@ -794,10 +829,7 @@
     wetterPreselectId = null;
 
     const heute = new Date().toISOString().slice(0, 10);
-    const kommendeTrips = Storage.trips.list()
-      .filter(t => t.datum >= heute)
-      .sort((a, b) => a.datum.localeCompare(b.datum))
-      .slice(0, 2);
+    const kommendeStops = flattenUpcomingStops(heute).slice(0, 2);
 
     viewEl.innerHTML = `
       <section class="view-section">
@@ -808,10 +840,10 @@
         <div id="wetter-result" class="wetter-result">
           <p class="muted">Lade Wetterdaten…</p>
         </div>
-        ${kommendeTrips.length ? `
+        ${kommendeStops.length ? `
           <h3 class="trips-widget-title">Anstehende Trips</h3>
           <div id="trips-widget" class="trips-widget">
-            ${kommendeTrips.map(t => `<div class="trip-mini-card" data-id="${t.id}"><p class="muted">Lade Prognose…</p></div>`).join('')}
+            ${kommendeStops.map((s, i) => `<div class="trip-mini-card" data-key="w${i}"><p class="muted">Lade Prognose…</p></div>`).join('')}
           </div>
         ` : ''}
       </section>
@@ -820,7 +852,7 @@
     const tripsWidget = document.getElementById('trips-widget');
     if (tripsWidget) {
       tripsWidget.addEventListener('click', () => navigate('trips'));
-      kommendeTrips.forEach(t => loadTripPreview(t, gewaesser));
+      kommendeStops.forEach((s, i) => loadStopPreview(s, gewaesser, `.trip-mini-card[data-key="w${i}"]`));
     }
 
     const select = document.getElementById('wetter-gewaesser');
@@ -881,13 +913,17 @@
     loadFor(select.value);
   }
 
-  // ---------- Trips ----------
+  // ---------- Trips (Multi-Stop) ----------
   function renderTrips() {
-    const items = Storage.trips.list().sort((a, b) => a.datum.localeCompare(b.datum));
     const gewaesser = Storage.gewaesser.list();
     const gName = id => gewaesser.find(g => g.id === id)?.name || '–';
+    const items = tripsNormalized().sort((a, b) => tripStartDate(a).localeCompare(tripStartDate(b)));
     const editing = tripEditId ? items.find(t => t.id === tripEditId) : null;
     const heute = new Date().toISOString().slice(0, 10);
+
+    // Lokaler, veränderlicher Stop-Zustand fürs Formular (nur der Stop-Container
+    // wird bei Änderungen neu gerendert, damit Name/Notiz nicht verloren gehen).
+    const stops = editing ? editing.stops.map(s => ({ ...s })) : [{ gewaesserId: '', von: '', bis: '' }];
 
     viewEl.innerHTML = `
       <section class="view-section">
@@ -896,12 +932,9 @@
           und eine geteilte Spot-Karte sind als nächstes großes Vorhaben geplant (braucht ein Cloud-Backend).</p>
         ${gewaesser.length === 0 ? '<p class="muted">Erst unter „Gewässer" ein Gewässer anlegen, um einen Trip zu planen.</p>' : `
         <form id="trip-form" class="card-form">
-          <select name="gewaesserId" required>
-            <option value="" disabled ${editing ? '' : 'selected'}>Gewässer wählen</option>
-            ${gewaesser.map(g => `<option value="${g.id}" ${editing?.gewaesserId === g.id ? 'selected' : ''}>${escapeHtml(g.name)}</option>`).join('')}
-          </select>
-          <input type="date" name="datum" value="${editing ? editing.datum : ''}" required>
-          <input type="text" name="name" placeholder="Name (optional, z.B. Herbsttour Altrhein)" value="${editing ? escapeHtml(editing.name || '') : ''}">
+          <input type="text" name="name" placeholder="Name (optional, z.B. Herbsttour)" value="${editing ? escapeHtml(editing.name || '') : ''}">
+          <div id="stops-container" class="stops-container"></div>
+          <button type="button" id="add-stop" class="secondary-btn">+ Ort hinzufügen</button>
           <textarea name="notiz" placeholder="Notiz (optional)">${editing ? escapeHtml(editing.notiz || '') : ''}</textarea>
           <div class="row">
             <button type="submit">${editing ? 'Speichern' : 'Trip anlegen'}</button>
@@ -914,31 +947,95 @@
             <li class="list-item">
               <div class="list-item-body">
                 <div class="list-item-summary" data-id="${t.id}">
-                  <strong>${escapeHtml(t.name || `Trip · ${gName(t.gewaesserId)}`)}</strong>
-                  <div class="muted">${fmtDayDate(t.datum)} · ${escapeHtml(gName(t.gewaesserId))}</div>
+                  <strong>${escapeHtml(t.name || `Trip ${fmtStopRange(tripStartDate(t), tripEndDate(t))}`)}</strong>
+                  <div class="muted">${fmtStopRange(tripStartDate(t), tripEndDate(t))}</div>
                   ${t.notiz ? `<div class="muted">${escapeHtml(t.notiz)}</div>` : ''}
                 </div>
-                ${t.datum >= heute ? `<div class="trip-mini-card" data-id="${t.id}"><p class="muted">Lade Prognose…</p></div>` : ''}
+                <div class="trip-stops-list">
+                  ${t.stops.map((s, i) => `
+                    <div class="trip-stop-row">
+                      <span>${escapeHtml(gName(s.gewaesserId))}</span>
+                      <span class="muted">${fmtStopRange(s.von, s.bis)}</span>
+                    </div>
+                    ${s.bis >= heute ? `<div class="trip-mini-card" data-key="${t.id}-${i}"><p class="muted">Lade Prognose…</p></div>` : ''}
+                  `).join('')}
+                </div>
               </div>
-              <button class="delete-btn" data-id="${t.id}" data-label="${escapeHtml(t.name || gName(t.gewaesserId))}">${Icons.svg('trash', { size: 18 })}</button>
+              <button class="delete-btn" data-id="${t.id}" data-label="${escapeHtml(t.name || gName(t.stops[0].gewaesserId))}">${Icons.svg('trash', { size: 18 })}</button>
             </li>
           `).join('') || '<li class="muted">Noch keine Trips geplant.</li>'}
         </ul>
       </section>
     `;
 
-    items.filter(t => t.datum >= heute).forEach(t => loadTripPreview(t, gewaesser));
+    items.forEach(t => t.stops.forEach((s, i) => {
+      if (s.bis >= heute) {
+        loadStopPreview(
+          { tripId: t.id, tripName: t.name, gewaesserId: s.gewaesserId, von: s.von, bis: s.bis },
+          gewaesser,
+          `.trip-mini-card[data-key="${t.id}-${i}"]`
+        );
+      }
+    }));
+
+    const stopsContainer = document.getElementById('stops-container');
+
+    function renderStopsRows() {
+      if (!stopsContainer) return;
+      stopsContainer.innerHTML = stops.map((s, i) => `
+        <div class="stop-row" data-idx="${i}">
+          <select data-field="gewaesserId">
+            <option value="" disabled ${s.gewaesserId ? '' : 'selected'}>Gewässer</option>
+            ${gewaesser.map(g => `<option value="${g.id}" ${s.gewaesserId === g.id ? 'selected' : ''}>${escapeHtml(g.name)}</option>`).join('')}
+          </select>
+          <div class="stop-row-dates">
+            <input type="date" data-field="von" value="${s.von}" placeholder="Von">
+            <input type="date" data-field="bis" value="${s.bis}" placeholder="Bis">
+            ${stops.length > 1 ? `<button type="button" class="remove-stop-btn" data-idx="${i}" aria-label="Ort entfernen">${Icons.svg('close', { size: 16 })}</button>` : ''}
+          </div>
+        </div>
+      `).join('');
+
+      stopsContainer.querySelectorAll('.stop-row').forEach(row => {
+        const idx = parseInt(row.dataset.idx, 10);
+        row.querySelectorAll('[data-field]').forEach(field => {
+          field.addEventListener('change', () => {
+            stops[idx][field.dataset.field] = field.value;
+            if (field.dataset.field === 'von' && !stops[idx].bis) stops[idx].bis = field.value;
+          });
+        });
+      });
+      stopsContainer.querySelectorAll('.remove-stop-btn').forEach(btn =>
+        btn.addEventListener('click', () => {
+          stops.splice(parseInt(btn.dataset.idx, 10), 1);
+          renderStopsRows();
+        })
+      );
+    }
+    renderStopsRows();
+
+    const addStopBtn = document.getElementById('add-stop');
+    if (addStopBtn) addStopBtn.addEventListener('click', () => {
+      stops.push({ gewaesserId: '', von: '', bis: '' });
+      renderStopsRows();
+    });
 
     const form = document.getElementById('trip-form');
     if (form) {
       form.addEventListener('submit', e => {
         e.preventDefault();
         const fd = new FormData(e.target);
+        const validStops = stops
+          .filter(s => s.gewaesserId && s.von)
+          .map(s => ({ gewaesserId: s.gewaesserId, von: s.von, bis: s.bis && s.bis >= s.von ? s.bis : s.von }));
+        if (validStops.length === 0) {
+          alert('Bitte mindestens einen Ort mit Gewässer und Datum angeben.');
+          return;
+        }
         const data = {
-          gewaesserId: fd.get('gewaesserId'),
-          datum: fd.get('datum'),
           name: fd.get('name').trim(),
           notiz: fd.get('notiz').trim(),
+          stops: validStops,
         };
         if (tripEditId) {
           Storage.trips.update(tripEditId, data);

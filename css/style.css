@@ -531,6 +531,67 @@ main#view {
   text-align: right;
 }
 
+.stops-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stop-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.stop-row-dates {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.stop-row select,
+.stop-row input {
+  width: 100%;
+  padding: 9px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.9rem;
+  background: var(--card-bg);
+  color: var(--text);
+}
+
+.remove-stop-btn {
+  background: none;
+  border: none;
+  color: var(--danger);
+  opacity: 0.6;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+}
+
+.trip-stops-list {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.trip-stop-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  padding: 2px 0;
+}
+
+.trip-stops-list .trip-mini-card {
+  margin: 2px 0;
+}
+
 .trips-widget-title {
   margin: 18px 0 8px;
   font-size: 0.95rem;
