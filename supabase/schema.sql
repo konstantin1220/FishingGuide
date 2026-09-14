@@ -1,5 +1,5 @@
 -- FishingGuide: Gruppen, Mitgliedschaft & Leaderboard
--- Einmalig im Supabase SQL-Editor ausführen (Project → SQL Editor → New query → einfügen → Run).
+-- Einmalig im Supabase SQL-Editor ausführen (Project → SQL Editor → New snippet → einfügen → Run).
 --
 -- Voraussetzung: unter Authentication → Settings "Allow anonymous sign-ins" aktivieren
 -- (per Klick im Dashboard, nicht per SQL steuerbar).
@@ -7,28 +7,21 @@
 -- Persönliche Angel-Daten (Gewässer/Fanglog/Köder/Trips) bleiben bewusst
 -- ausschließlich lokal im Browser - hier landen nur Gruppenzugehörigkeit,
 -- Anzeigename und aggregierte Fang-Statistik fürs Leaderboard.
+--
+-- Reihenfolge wichtig: erst ALLE Tabellen anlegen, dann RLS/Policies -
+-- Policies können auf andere Tabellen verweisen (z.B. groups -> group_members),
+-- die müssen beim Anlegen der Policy schon existieren.
 
 create extension if not exists pgcrypto;
 
--- ---------- profiles ----------
+-- ---------- Tabellen ----------
+
 create table if not exists profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   display_name text not null,
   updated_at timestamptz default now()
 );
 
-alter table profiles enable row level security;
-
-drop policy if exists "profiles_select_all" on profiles;
-create policy "profiles_select_all" on profiles for select using (true);
-
-drop policy if exists "profiles_insert_own" on profiles;
-create policy "profiles_insert_own" on profiles for insert with check (auth.uid() = id);
-
-drop policy if exists "profiles_update_own" on profiles;
-create policy "profiles_update_own" on profiles for update using (auth.uid() = id);
-
--- ---------- groups ----------
 create table if not exists groups (
   id uuid primary key default gen_random_uuid(),
   name text not null,
@@ -37,14 +30,6 @@ create table if not exists groups (
   created_at timestamptz default now()
 );
 
-alter table groups enable row level security;
-
-drop policy if exists "groups_select_members" on groups;
-create policy "groups_select_members" on groups for select using (
-  exists (select 1 from group_members m where m.group_id = groups.id and m.user_id = auth.uid())
-);
-
--- ---------- group_members ----------
 create table if not exists group_members (
   group_id uuid references groups(id) on delete cascade,
   user_id uuid references auth.users(id) on delete cascade,
@@ -52,14 +37,6 @@ create table if not exists group_members (
   primary key (group_id, user_id)
 );
 
-alter table group_members enable row level security;
-
-drop policy if exists "group_members_select_same_group" on group_members;
-create policy "group_members_select_same_group" on group_members for select using (
-  exists (select 1 from group_members m2 where m2.group_id = group_members.group_id and m2.user_id = auth.uid())
-);
-
--- ---------- group_stats (Leaderboard) ----------
 create table if not exists group_stats (
   group_id uuid references groups(id) on delete cascade,
   user_id uuid references auth.users(id) on delete cascade,
@@ -70,7 +47,31 @@ create table if not exists group_stats (
   primary key (group_id, user_id)
 );
 
+-- ---------- Row-Level-Security ----------
+
+alter table profiles enable row level security;
+alter table groups enable row level security;
+alter table group_members enable row level security;
 alter table group_stats enable row level security;
+
+drop policy if exists "profiles_select_all" on profiles;
+create policy "profiles_select_all" on profiles for select using (true);
+
+drop policy if exists "profiles_insert_own" on profiles;
+create policy "profiles_insert_own" on profiles for insert with check (auth.uid() = id);
+
+drop policy if exists "profiles_update_own" on profiles;
+create policy "profiles_update_own" on profiles for update using (auth.uid() = id);
+
+drop policy if exists "groups_select_members" on groups;
+create policy "groups_select_members" on groups for select using (
+  exists (select 1 from group_members m where m.group_id = groups.id and m.user_id = auth.uid())
+);
+
+drop policy if exists "group_members_select_same_group" on group_members;
+create policy "group_members_select_same_group" on group_members for select using (
+  exists (select 1 from group_members m2 where m2.group_id = group_members.group_id and m2.user_id = auth.uid())
+);
 
 drop policy if exists "group_stats_select_same_group" on group_stats;
 create policy "group_stats_select_same_group" on group_stats for select using (
