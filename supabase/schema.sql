@@ -102,7 +102,7 @@ create policy "group_stats_select_same_group" on group_stats for select using (
 
 create or replace function create_group(p_name text, p_display_name text)
 returns groups
-language plpgsql security definer set search_path = public
+language plpgsql security definer set search_path = public, extensions
 as $$
 declare
   v_group groups;
