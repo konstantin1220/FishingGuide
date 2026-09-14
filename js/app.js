@@ -81,6 +81,16 @@
     return confirm(`„${label}" wirklich löschen?`);
   }
 
+  // Pro-Konto-Präferenzen (zuletzt genutztes Gewässer/Köder etc.), getrennt
+  // vom Storage-CRUD, daher eigene, mit dem Konto-Namen versehene Keys.
+  function prefGet(key) {
+    return localStorage.getItem(`fg_pref_${Auth.currentUsername()}_${key}`);
+  }
+
+  function prefSet(key, value) {
+    localStorage.setItem(`fg_pref_${Auth.currentUsername()}_${key}`, value);
+  }
+
   function weatherIconFor(code) {
     if ([51, 53, 55, 61, 63, 65, 80, 81, 82, 95, 96, 99].includes(code)) return 'rain';
     if ([2, 3, 45, 48].includes(code)) return 'cloud';
@@ -139,32 +149,74 @@
     };
   }
 
-  // ---------- Login-Gate ----------
+  // ---------- Login-Gate (eigenes Konto pro Nutzer) ----------
   function renderLogin() {
+    let mode = 'login'; // 'login' | 'register'
+
     viewEl.innerHTML = `
       <section class="login-screen">
         <div class="login-icon">${Icons.svg('lock', { size: 30 })}</div>
         <h2>FishingGuide</h2>
-        <p class="muted">Diese App ist nur für einen ausgewählten Personenkreis. Bitte Zugangscode eingeben.</p>
+        <p class="muted" id="login-subtitle">Melde dich mit deinem Namen und Passwort an.</p>
         <form id="login-form" class="card-form">
-          <input type="password" name="code" placeholder="Zugangscode" required autocomplete="off">
-          <input type="text" name="name" placeholder="Dein Name" required autocomplete="off">
-          <button type="submit">Anmelden</button>
-          <p id="login-error" class="login-error" hidden>Falscher Zugangscode. Bitte erneut versuchen.</p>
+          <input type="text" name="username" placeholder="Name" required autocomplete="username">
+          <input type="password" name="password" placeholder="Passwort" required autocomplete="current-password">
+          <input type="password" name="password2" placeholder="Passwort wiederholen" autocomplete="new-password" hidden>
+          <input type="text" name="invite" placeholder="Einladungscode" autocomplete="off" hidden>
+          <button type="submit" id="login-submit-btn">Anmelden</button>
+          <p id="login-error" class="login-error" hidden></p>
         </form>
+        <button type="button" id="toggle-mode-btn" class="link-btn">Noch kein Konto? Registrieren</button>
         <button type="button" id="login-impressum-link" class="link-btn">Impressum &amp; Datenschutz</button>
       </section>
     `;
 
-    document.getElementById('login-form').addEventListener('submit', async e => {
+    const form = document.getElementById('login-form');
+    const password2Input = form.querySelector('[name="password2"]');
+    const inviteInput = form.querySelector('[name="invite"]');
+    const submitBtn = document.getElementById('login-submit-btn');
+    const subtitleEl = document.getElementById('login-subtitle');
+    const toggleBtn = document.getElementById('toggle-mode-btn');
+    const errorEl = document.getElementById('login-error');
+
+    function applyMode() {
+      const isRegister = mode === 'register';
+      password2Input.hidden = !isRegister;
+      password2Input.required = isRegister;
+      inviteInput.hidden = !isRegister;
+      inviteInput.required = isRegister;
+      submitBtn.textContent = isRegister ? 'Konto erstellen' : 'Anmelden';
+      subtitleEl.textContent = isRegister
+        ? 'Neues Konto anlegen: Name, eigenes Passwort und Einladungscode.'
+        : 'Melde dich mit deinem Namen und Passwort an.';
+      toggleBtn.textContent = isRegister ? 'Schon ein Konto? Anmelden' : 'Noch kein Konto? Registrieren';
+      errorEl.hidden = true;
+    }
+
+    toggleBtn.addEventListener('click', () => {
+      mode = mode === 'login' ? 'register' : 'login';
+      applyMode();
+    });
+
+    form.addEventListener('submit', async e => {
       e.preventDefault();
       const fd = new FormData(e.target);
-      const ok = await Auth.checkCode(fd.get('code').trim());
-      const errorEl = document.getElementById('login-error');
-      if (ok) {
-        Auth.login(fd.get('name').trim() || 'Angler');
+      const username = fd.get('username').trim();
+      const password = fd.get('password');
+      errorEl.hidden = true;
+
+      try {
+        if (mode === 'register') {
+          if (password !== fd.get('password2')) throw new Error('Passwörter stimmen nicht überein.');
+          if (!(await Auth.checkInviteCode(fd.get('invite').trim()))) throw new Error('Falscher Einladungscode.');
+          await Auth.register(username, password);
+        } else {
+          await Auth.login(username, password);
+        }
+        Storage.setNamespace(Auth.currentUsername());
         boot();
-      } else {
+      } catch (err) {
+        errorEl.textContent = err.message;
         errorEl.hidden = false;
       }
     });
@@ -215,14 +267,14 @@
     const heute = new Date().toISOString().slice(0, 10);
     const naechsterStop = flattenUpcomingStops(heute)[0];
 
-    const wetterGewaesserId = localStorage.getItem('fg_last_wetter_gewaesser');
+    const wetterGewaesserId = prefGet('wetter_gewaesser');
     const wetterGewaesser = gewaesser.find(g => g.id === wetterGewaesserId) || gewaesser[0];
 
     viewEl.innerHTML = `
       <section class="view-section">
         <div class="hero">
           <div class="hero-date">${fmtToday()}</div>
-          <h2>Angemeldet als ${escapeHtml(Auth.currentUser())}</h2>
+          <h2>Angemeldet als ${escapeHtml(Auth.currentDisplayName())}</h2>
         </div>
 
         <div id="dash-weather" class="dash-weather-card">
@@ -566,8 +618,8 @@
     const kName = id => koeder.find(k => k.id === id)?.name || '–';
     const editing = fangEditId ? items.find(f => f.id === fangEditId) : null;
 
-    const lastGewaesserId = !editing && localStorage.getItem('fg_last_gewaesser');
-    const lastKoederId = !editing && localStorage.getItem('fg_last_koeder');
+    const lastGewaesserId = !editing && prefGet('last_gewaesser');
+    const lastKoederId = !editing && prefGet('last_koeder');
     const defaultGewaesserId = editing?.gewaesserId ?? (gewaesser.some(g => g.id === lastGewaesserId) ? lastGewaesserId : '');
     const defaultKoederId = editing?.koederId ?? (koeder.some(k => k.id === lastKoederId) ? lastKoederId : '');
 
@@ -636,8 +688,8 @@
           Storage.faenge.update(fangEditId, data);
         } else {
           Storage.faenge.add(data);
-          localStorage.setItem('fg_last_gewaesser', data.gewaesserId);
-          if (data.koederId) localStorage.setItem('fg_last_koeder', data.koederId);
+          prefSet('last_gewaesser', data.gewaesserId);
+          if (data.koederId) prefSet('last_koeder', data.koederId);
         }
         fangEditId = null;
         renderFanglog();
@@ -858,7 +910,7 @@
     const select = document.getElementById('wetter-gewaesser');
     const loadFor = async id => {
       const g = gewaesser.find(x => x.id === id);
-      localStorage.setItem('fg_last_wetter_gewaesser', id);
+      prefSet('wetter_gewaesser', id);
       const resultEl = document.getElementById('wetter-result');
       resultEl.innerHTML = '<p class="muted">Lade Wetterdaten…</p>';
       try {
@@ -1075,7 +1127,7 @@
       <section class="view-section">
         <h2>Einstellungen</h2>
         <div class="card-form">
-          <p class="muted">Angemeldet als <strong>${escapeHtml(Auth.currentUser())}</strong></p>
+          <p class="muted">Angemeldet als <strong>${escapeHtml(Auth.currentDisplayName())}</strong></p>
           <p class="muted">${gewaesser.length} Gewässer · ${faenge.length} Fänge · ${koeder.length} Köder — alle Daten liegen nur lokal auf diesem Gerät.</p>
           <button type="button" id="export-btn">${Icons.svg('download', { size: 18 })} Daten exportieren (Backup)</button>
           <button type="button" id="import-btn" class="secondary-btn">${Icons.svg('upload', { size: 18 })} Daten importieren</button>
@@ -1144,6 +1196,7 @@
 
   function init() {
     if (Auth.isLoggedIn()) {
+      Storage.setNamespace(Auth.currentUsername());
       boot();
     } else {
       headerEl.hidden = true;

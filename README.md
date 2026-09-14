@@ -7,7 +7,8 @@ Smartphone-Homescreen installiert werden, kein App-Store nötig.
 
 ## Funktionen
 
-- **Zugangsschutz**: gemeinsamer Zugangscode (Hash-geschützt) + Anzeigename
+- **Eigene Konten**: Name + selbstgewähltes Passwort pro Nutzer (Registrierung
+  nur mit Einladungscode möglich), jedes Konto sieht nur seine eigenen Daten
 - **Gewässer** verwalten: Name (per Reverse-Geocoding vorgeschlagen), interaktive
   Karte (Klick zum Setzen des Standorts, Mausrad-Zoom nach Klick), Standort-Button
 - **Fanglog**: Fänge erfassen (Art mit Autofill, Länge/Gewicht, Köder, Gewässer,
@@ -21,8 +22,10 @@ Smartphone-Homescreen installiert werden, kein App-Store nötig.
   inkl. Wetterprognose + Köder-Tipps pro Stop
 - **Einstellungen**: Datenexport/-import als JSON-Backup, Impressum & Datenschutz
 
-Alle Daten werden lokal auf dem Gerät gespeichert (`localStorage`) – kein
-Account, kein eigener Server nötig.
+Alle Daten werden lokal auf dem Gerät gespeichert (`localStorage`), getrennt
+pro Konto – kein eigener Server nötig. Das bedeutet auch: Daten sind nicht
+geräteübergreifend synchronisiert, wer sich auf einem anderen Gerät anmeldet,
+sieht dort einen leeren, eigenen Datenbereich.
 
 ## Lokal starten
 
@@ -42,7 +45,8 @@ Läuft über **GitHub Pages** direkt aus diesem (öffentlichen) Repository –
 jeder Push auf `main` wird automatisch neu veröffentlicht, kein separater
 Deploy-Befehl nötig. Der Quellcode ist dadurch öffentlich einsehbar; die
 eigentlichen Nutzdaten bleiben trotzdem privat, da sie ausschließlich lokal
-im Browser jedes Nutzers liegen und der Zugangscode nur als Hash im Code steht.
+im Browser jedes Nutzers liegen und Passwörter/Einladungscode nur gehasht
+im Code bzw. lokal gespeichert werden.
 
 ## Geplante Ausbaustufen
 
