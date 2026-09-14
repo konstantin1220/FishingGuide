@@ -1,6 +1,6 @@
 // Cached die App-Shell, damit die App auch ohne Netzverbindung startet.
 // Live-Wetterdaten (Open-Meteo) brauchen weiterhin eine Verbindung.
-const CACHE_NAME = 'fishingguide-v11';
+const CACHE_NAME = 'fishingguide-v12';
 const APP_SHELL = [
   './',
   './index.html',
@@ -23,13 +23,17 @@ self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL))
   );
+  // Neue Version sofort aktivieren statt zu warten, bis alle offenen Tabs
+  // geschlossen wurden - sonst bekommen Nutzer Updates erst nach komplettem
+  // Schließen der Seite zu sehen, ein Reload allein reicht dafür nicht.
+  self.skipWaiting();
 });
 
 self.addEventListener('activate', event => {
   event.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key)))
-    )
+    caches.keys()
+      .then(keys => Promise.all(keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key))))
+      .then(() => self.clients.claim())
   );
 });
 
