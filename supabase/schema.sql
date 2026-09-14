@@ -63,19 +63,38 @@ create policy "profiles_insert_own" on profiles for insert with check (auth.uid(
 drop policy if exists "profiles_update_own" on profiles;
 create policy "profiles_update_own" on profiles for update using (auth.uid() = id);
 
+-- SECURITY DEFINER-Hilfsfunktion: prüft Mitgliedschaft, ohne dabei selbst der
+-- RLS-Policy von group_members zu unterliegen (deren Funktionsbesitzer
+-- umgeht RLS als Tabellen-Owner). Direkte Subqueries auf group_members
+-- innerhalb einer Policy AUF group_members würden sonst eine Endlosschleife
+-- auslösen ("infinite recursion detected in policy for relation
+-- group_members") - genau dieser Fehler trat live auf und wird hiermit behoben.
+create or replace function is_group_member(p_group_id uuid)
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1 from group_members
+    where group_id = p_group_id and user_id = auth.uid()
+  );
+$$;
+
 drop policy if exists "groups_select_members" on groups;
 create policy "groups_select_members" on groups for select using (
-  exists (select 1 from group_members m where m.group_id = groups.id and m.user_id = auth.uid())
+  is_group_member(groups.id)
 );
 
 drop policy if exists "group_members_select_same_group" on group_members;
 create policy "group_members_select_same_group" on group_members for select using (
-  exists (select 1 from group_members m2 where m2.group_id = group_members.group_id and m2.user_id = auth.uid())
+  is_group_member(group_members.group_id)
 );
 
 drop policy if exists "group_stats_select_same_group" on group_stats;
 create policy "group_stats_select_same_group" on group_stats for select using (
-  exists (select 1 from group_members m where m.group_id = group_stats.group_id and m.user_id = auth.uid())
+  is_group_member(group_stats.group_id)
 );
 
 -- ---------- RPCs (SECURITY DEFINER, damit Invite-Code-Lookup nicht per
