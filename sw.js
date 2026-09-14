@@ -1,6 +1,6 @@
 // Cached die App-Shell, damit die App auch ohne Netzverbindung startet.
 // Live-Wetterdaten (Open-Meteo) brauchen weiterhin eine Verbindung.
-const CACHE_NAME = 'fishingguide-v13';
+const CACHE_NAME = 'fishingguide-v14';
 const APP_SHELL = [
   './',
   './index.html',
@@ -21,7 +21,16 @@ const APP_SHELL = [
 
 self.addEventListener('install', event => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL))
+    caches.open(CACHE_NAME).then(cache =>
+      // cache.addAll() nutzt intern fetch() mit normalem HTTP-Cache-Verhalten -
+      // dadurch konnte die Service-Worker-Cache selbst bei neuer CACHE_NAME
+      // versehentlich eine vom Browser bereits HTTP-gecachte, veraltete Datei
+      // einfangen. { cache: 'reload' } erzwingt pro Datei einen echten
+      // Netzwerk-Request unter Umgehung des HTTP-Caches.
+      Promise.all(APP_SHELL.map(url =>
+        fetch(url, { cache: 'reload' }).then(res => cache.put(url, res))
+      ))
+    )
   );
   // Neue Version sofort aktivieren statt zu warten, bis alle offenen Tabs
   // geschlossen wurden - sonst bekommen Nutzer Updates erst nach komplettem
