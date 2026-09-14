@@ -74,7 +74,7 @@ const SB = (() => {
     await ensureSession();
     const { data, error } = await client
       .from('group_members')
-      .select('user_id, joined_at, profiles(display_name)')
+      .select('user_id, joined_at, profiles!user_id(display_name)')
       .eq('group_id', groupId);
     if (error) throw error;
     return data.map(m => ({ userId: m.user_id, joinedAt: m.joined_at, displayName: m.profiles?.display_name || '?' }));
@@ -84,7 +84,7 @@ const SB = (() => {
     await ensureSession();
     const { data, error } = await client
       .from('group_stats')
-      .select('user_id, total_faenge, biggest_fish_art, biggest_fish_laenge, profiles(display_name)')
+      .select('user_id, total_faenge, biggest_fish_art, biggest_fish_laenge, profiles!user_id(display_name)')
       .eq('group_id', groupId)
       .order('total_faenge', { ascending: false });
     if (error) throw error;
@@ -114,7 +114,7 @@ const SB = (() => {
     await ensureSession();
     const { data, error } = await client
       .from('group_messages')
-      .select('id, user_id, body, image_path, created_at, profiles(display_name)')
+      .select('id, user_id, body, image_path, created_at, profiles!user_id(display_name)')
       .eq('group_id', groupId)
       .order('created_at', { ascending: true })
       .limit(50);
