@@ -17,11 +17,14 @@ const SB = (() => {
   let client = null;
   let currentAccount = null;
   let sessionPromise = null;
+  let currentUserId = null;
+  let chatChannel = null;
 
   function setAccount(username) {
     if (username === currentAccount && client) return;
     currentAccount = username;
     sessionPromise = null;
+    currentUserId = null;
     client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
       auth: { storageKey: `sb-fg-${username}-auth-token` },
     });
@@ -32,13 +35,18 @@ const SB = (() => {
     if (!sessionPromise) {
       sessionPromise = (async () => {
         const { data } = await client.auth.getSession();
-        if (data.session) return data.session;
+        if (data.session) { currentUserId = data.session.user.id; return data.session; }
         const { data: signInData, error } = await client.auth.signInAnonymously();
         if (error) throw error;
+        currentUserId = signInData.session.user.id;
         return signInData.session;
       })();
     }
     return sessionPromise;
+  }
+
+  function myUserId() {
+    return currentUserId;
   }
 
   async function createGroup(name, displayName) {
@@ -100,5 +108,132 @@ const SB = (() => {
     if (error) throw error;
   }
 
-  return { setAccount, ensureSession, createGroup, joinGroup, listMyGroups, listMembers, listLeaderboard, syncStats };
+  // ---------- Gruppen-Chat ----------
+
+  async function listMessages(groupId) {
+    await ensureSession();
+    const { data, error } = await client
+      .from('group_messages')
+      .select('id, user_id, body, image_path, created_at, profiles(display_name)')
+      .eq('group_id', groupId)
+      .order('created_at', { ascending: true })
+      .limit(50);
+    if (error) throw error;
+    return data.map(m => ({
+      id: m.id,
+      userId: m.user_id,
+      displayName: m.profiles?.display_name || '?',
+      body: m.body,
+      imagePath: m.image_path,
+      createdAt: m.created_at,
+    }));
+  }
+
+  async function sendMessage(groupId, body, imagePath) {
+    await ensureSession();
+    const { data, error } = await client
+      .from('group_messages')
+      .insert({ group_id: groupId, user_id: currentUserId, body: body || null, image_path: imagePath || null })
+      .select('id, user_id, body, image_path, created_at')
+      .single();
+    if (error) throw error;
+    return { id: data.id, userId: data.user_id, body: data.body, imagePath: data.image_path, createdAt: data.created_at };
+  }
+
+  async function deleteMessage(messageId) {
+    await ensureSession();
+    const { error } = await client.from('group_messages').delete().eq('id', messageId);
+    if (error) throw error;
+  }
+
+  // Skaliert/komprimiert ein Bild clientseitig (max. 1600px Kante, JPEG ~0.82),
+  // damit hochgeladene Fotos nicht unnötig Speicherplatz im Free-Tier fressen.
+  function compressImage(file) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const maxSide = 1600;
+        const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob(blob => (blob ? resolve(blob) : reject(new Error('Bild konnte nicht verarbeitet werden.'))), 'image/jpeg', 0.82);
+        URL.revokeObjectURL(img.src);
+      };
+      img.onerror = () => reject(new Error('Bild konnte nicht gelesen werden.'));
+      img.src = URL.createObjectURL(file);
+    });
+  }
+
+  async function uploadChatImage(groupId, file) {
+    await ensureSession();
+    const blob = await compressImage(file);
+    const path = `${groupId}/${crypto.randomUUID()}.jpg`;
+    const { error } = await client.storage.from('group-chat').upload(path, blob, { contentType: 'image/jpeg' });
+    if (error) throw error;
+    return path;
+  }
+
+  async function getSignedImageUrls(paths) {
+    if (!paths.length) return {};
+    await ensureSession();
+    const { data, error } = await client.storage.from('group-chat').createSignedUrls(paths, 3600);
+    if (error) throw error;
+    const map = {};
+    data.forEach(d => { if (d.signedUrl) map[d.path] = d.signedUrl; });
+    return map;
+  }
+
+  async function listReactions(messageIds) {
+    if (!messageIds.length) return [];
+    await ensureSession();
+    const { data, error } = await client
+      .from('message_reactions')
+      .select('message_id, user_id, emoji')
+      .in('message_id', messageIds);
+    if (error) throw error;
+    return data.map(r => ({ messageId: r.message_id, userId: r.user_id, emoji: r.emoji }));
+  }
+
+  async function toggleReaction(messageId, emoji) {
+    await ensureSession();
+    const { error } = await client
+      .from('message_reactions')
+      .insert({ message_id: messageId, user_id: currentUserId, emoji });
+    if (!error) return 'added';
+    if (error.code === '23505') {
+      const { error: delError } = await client
+        .from('message_reactions')
+        .delete()
+        .eq('message_id', messageId).eq('user_id', currentUserId).eq('emoji', emoji);
+      if (delError) throw delError;
+      return 'removed';
+    }
+    throw error;
+  }
+
+  function subscribeToChat(groupId, { onMessage, onMessageDelete, onReactionChange } = {}) {
+    unsubscribeFromChat();
+    chatChannel = client
+      .channel(`chat-${groupId}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'group_messages', filter: `group_id=eq.${groupId}` },
+        payload => onMessage && onMessage(payload.new))
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'group_messages', filter: `group_id=eq.${groupId}` },
+        payload => onMessageDelete && onMessageDelete(payload.old))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'message_reactions' },
+        () => onReactionChange && onReactionChange())
+      .subscribe();
+  }
+
+  function unsubscribeFromChat() {
+    if (chatChannel) { client.removeChannel(chatChannel); chatChannel = null; }
+  }
+
+  return {
+    setAccount, ensureSession, myUserId, createGroup, joinGroup, listMyGroups, listMembers, listLeaderboard, syncStats,
+    listMessages, sendMessage, deleteMessage, uploadChatImage, getSignedImageUrls, listReactions, toggleReaction,
+    subscribeToChat, unsubscribeFromChat,
+  };
 })();

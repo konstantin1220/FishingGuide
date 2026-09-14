@@ -20,6 +20,9 @@ const Icons = (() => {
     info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/>',
     calendar: '<rect x="4" y="5.5" width="16" height="15" rx="1.5"/><path d="M4 10h16M8 3.5v3M16 3.5v3"/><circle cx="8.3" cy="14" r="0.9" fill="currentColor" stroke="none"/><circle cx="12" cy="14" r="0.9" fill="currentColor" stroke="none"/>',
     users: '<circle cx="9" cy="9" r="3"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0"/><path d="M16 8.5a2.8 2.8 0 0 1 0 5.4M19.5 20a4.8 4.8 0 0 0-3.3-5.6"/>',
+    menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+    image: '<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="M20.3 15.8 15 10.5l-9 9"/>',
+    send: '<path d="M4 12 20 4l-6.5 16-3-6.5L4 12Z"/>',
   };
 
   function svg(name, opts = {}) {

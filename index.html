@@ -17,7 +17,16 @@
 <body>
 <header class="app-header" id="app-header" hidden>
   <h1>FishingGuide</h1>
-  <button id="settings-btn" class="settings-btn" aria-label="Einstellungen"></button>
+  <div class="header-menu-wrap">
+    <button id="menu-btn" class="settings-btn" aria-label="Menü" aria-expanded="false"></button>
+    <div class="header-menu" id="header-menu" hidden>
+      <button type="button" class="header-menu-item" data-view="koeder"></button>
+      <button type="button" class="header-menu-item" data-view="trips"></button>
+      <button type="button" class="header-menu-item" data-view="gruppen"></button>
+      <button type="button" class="header-menu-item" data-view="einstellungen"></button>
+      <button type="button" class="header-menu-item" data-view="impressum"></button>
+    </div>
+  </div>
 </header>
 
 <main id="view"></main>
@@ -26,20 +35,14 @@
   <button class="nav-btn" data-view="start">
     <span class="nav-icon" data-icon="home"></span><span>Start</span>
   </button>
-  <button class="nav-btn" data-view="wetter">
-    <span class="nav-icon" data-icon="weather"></span><span>Wetter</span>
-  </button>
   <button class="nav-btn" data-view="fanglog">
     <span class="nav-icon" data-icon="fish"></span><span>Fanglog</span>
   </button>
-  <button class="nav-btn" data-view="koeder">
-    <span class="nav-icon" data-icon="bait"></span><span>Köder</span>
+  <button class="nav-btn" data-view="wetter">
+    <span class="nav-icon" data-icon="weather"></span><span>Wetter</span>
   </button>
   <button class="nav-btn" data-view="gewaesser">
     <span class="nav-icon" data-icon="pin"></span><span>Gewässer</span>
-  </button>
-  <button class="nav-btn" data-view="trips">
-    <span class="nav-icon" data-icon="calendar"></span><span>Trips</span>
   </button>
 </nav>
 

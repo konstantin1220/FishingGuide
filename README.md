@@ -21,7 +21,8 @@ Smartphone-Homescreen installiert werden, kein App-Store nötig.
 - **Angeltrips**: Trip mit mehreren Orten (Stops) und je eigener Zeitspanne planen,
   inkl. Wetterprognose + Köder-Tipps pro Stop
 - **Gruppen**: Gruppe erstellen oder per Einladungslink beitreten, gemeinsames
-  Leaderboard (Anzahl Fänge, größter Fisch) – einzige Funktion mit Cloud-Backend
+  Leaderboard (Anzahl Fänge, größter Fisch) sowie ein Gruppen-Chat (Text, Bilder,
+  Emoji-Reaktionen, live per Realtime) – einzige Funktionen mit Cloud-Backend
   (Supabase), siehe unten
 - **Einstellungen**: Datenexport/-import als JSON-Backup, Impressum & Datenschutz
 
@@ -53,13 +54,14 @@ im Code bzw. lokal gespeichert werden.
 
 ## Gruppen-Backend (Supabase)
 
-Die Gruppen-/Leaderboard-Funktion ist die einzige, die einen Server braucht.
-Persönliche Angel-Daten bleiben davon unberührt und komplett lokal. Setup
-(einmalig, siehe [`supabase/schema.sql`](supabase/schema.sql)):
+Die Gruppen-/Leaderboard-/Chat-Funktion ist die einzige, die einen Server
+braucht. Persönliche Angel-Daten bleiben davon unberührt und komplett lokal.
+Setup (einmalig, siehe [`supabase/schema.sql`](supabase/schema.sql)):
 
 1. Supabase-Projekt anlegen (EU-Region)
 2. Unter Authentication → Settings "Allow anonymous sign-ins" aktivieren
-3. `supabase/schema.sql` im SQL-Editor ausführen
+3. `supabase/schema.sql` im SQL-Editor ausführen (legt auch den privaten
+   Storage-Bucket für Chat-Bilder sowie die Realtime-Anbindung für den Chat an)
 4. Project URL + Publishable Key in `js/supabaseClient.js` eintragen (dort
    bereits hinterlegt – beide Werte sind bewusst öffentlich, abgesichert wird
    über Row-Level-Security-Regeln, nicht über Geheimhaltung des Keys)
@@ -69,3 +71,4 @@ Persönliche Angel-Daten bleiben davon unberührt und komplett lokal. Setup
 - Challenges mit Ablaufdatum, Aktivitäts-Feed in Gruppen
 - Crowdsourced Tiefenwasserkarten pro Gewässer mit Querschnitts-Ansicht an
   einzelnen Spots
+- Geteilte Spot-Karte mit Kommentaren aller Gruppenmitglieder

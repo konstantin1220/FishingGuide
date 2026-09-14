@@ -182,3 +182,93 @@ begin
     updated_at = now();
 end;
 $$;
+
+-- ============================================================
+-- Gruppen-Chat: Nachrichten, Bilder, Reaktionen
+-- ============================================================
+
+create table if not exists group_messages (
+  id uuid primary key default gen_random_uuid(),
+  group_id uuid references groups(id) on delete cascade,
+  user_id uuid references profiles(id) on delete cascade,
+  body text,
+  image_path text,
+  created_at timestamptz default now()
+);
+
+create table if not exists message_reactions (
+  message_id uuid references group_messages(id) on delete cascade,
+  user_id uuid references profiles(id) on delete cascade,
+  emoji text not null,
+  created_at timestamptz default now(),
+  primary key (message_id, user_id, emoji)
+);
+
+alter table group_messages enable row level security;
+alter table message_reactions enable row level security;
+
+-- REPLICA IDENTITY FULL: bei DELETE liefert Postgres per Voreinstellung nur
+-- den Primärschlüssel der gelöschten Zeile an Realtime. Die SELECT-Policy
+-- unten braucht aber group_id, um zu prüfen, ob ein anderes Gruppenmitglied
+-- das Löschen live mitbekommen darf - ohne FULL bliebe die Nachricht bei
+-- anderen Mitgliedern bis zum nächsten Neuladen sichtbar.
+alter table group_messages replica identity full;
+
+drop policy if exists "group_messages_select" on group_messages;
+create policy "group_messages_select" on group_messages for select using (
+  is_group_member(group_id)
+);
+
+drop policy if exists "group_messages_insert" on group_messages;
+create policy "group_messages_insert" on group_messages for insert with check (
+  is_group_member(group_id) and user_id = auth.uid()
+);
+
+drop policy if exists "group_messages_delete_own" on group_messages;
+create policy "group_messages_delete_own" on group_messages for delete using (
+  user_id = auth.uid()
+);
+
+drop policy if exists "message_reactions_select" on message_reactions;
+create policy "message_reactions_select" on message_reactions for select using (
+  exists (select 1 from group_messages gm where gm.id = message_reactions.message_id and is_group_member(gm.group_id))
+);
+
+drop policy if exists "message_reactions_insert_own" on message_reactions;
+create policy "message_reactions_insert_own" on message_reactions for insert with check (
+  user_id = auth.uid()
+  and exists (select 1 from group_messages gm where gm.id = message_reactions.message_id and is_group_member(gm.group_id))
+);
+
+drop policy if exists "message_reactions_delete_own" on message_reactions;
+create policy "message_reactions_delete_own" on message_reactions for delete using (
+  user_id = auth.uid()
+);
+
+-- Realtime aktivieren (entspricht dem Dashboard-Schalter unter Database →
+-- Replication) - respektiert automatisch die obigen RLS-Policies, kein
+-- Nutzer sieht per Realtime mehr als per normalem SELECT.
+do $$ begin
+  alter publication supabase_realtime add table group_messages;
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  alter publication supabase_realtime add table message_reactions;
+exception when duplicate_object then null; end $$;
+
+-- Privater Storage-Bucket für Chat-Bilder. Pfad-Konvention: <groupId>/<datei>
+-- - storage.foldername(name)[1] liest die Gruppen-ID direkt aus dem Pfad,
+-- gleiches Muster wie bei den Tabellen-Policies oben.
+insert into storage.buckets (id, name, public)
+values ('group-chat', 'group-chat', false)
+on conflict (id) do nothing;
+
+drop policy if exists "chat_images_select" on storage.objects;
+create policy "chat_images_select" on storage.objects for select using (
+  bucket_id = 'group-chat' and is_group_member((storage.foldername(name))[1]::uuid)
+);
+
+drop policy if exists "chat_images_insert" on storage.objects;
+create policy "chat_images_insert" on storage.objects for insert with check (
+  bucket_id = 'group-chat' and is_group_member((storage.foldername(name))[1]::uuid)
+);

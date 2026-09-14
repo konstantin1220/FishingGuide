@@ -19,7 +19,42 @@
     const iconSpan = btn.querySelector('[data-icon]');
     iconSpan.innerHTML = Icons.svg(iconSpan.dataset.icon);
   });
-  document.getElementById('settings-btn').innerHTML = Icons.svg('gear', { size: 20 });
+
+  const menuBtn = document.getElementById('menu-btn');
+  const headerMenuEl = document.getElementById('header-menu');
+  const HEADER_MENU_ITEMS = {
+    koeder: { icon: 'bait', label: 'Köder' },
+    trips: { icon: 'calendar', label: 'Trips' },
+    gruppen: { icon: 'users', label: 'Gruppen' },
+    einstellungen: { icon: 'gear', label: 'Einstellungen' },
+    impressum: { icon: 'info', label: 'Impressum' },
+  };
+  menuBtn.innerHTML = Icons.svg('menu', { size: 20 });
+  headerMenuEl.querySelectorAll('.header-menu-item').forEach(btn => {
+    const item = HEADER_MENU_ITEMS[btn.dataset.view];
+    btn.innerHTML = `${Icons.svg(item.icon, { size: 18 })}<span>${item.label}</span>`;
+  });
+
+  function closeHeaderMenu() {
+    headerMenuEl.hidden = true;
+    menuBtn.setAttribute('aria-expanded', 'false');
+  }
+
+  menuBtn.addEventListener('click', () => {
+    const willOpen = headerMenuEl.hidden;
+    headerMenuEl.hidden = !willOpen;
+    menuBtn.setAttribute('aria-expanded', String(willOpen));
+  });
+
+  document.addEventListener('click', e => {
+    if (!headerMenuEl.hidden && !e.target.closest('.header-menu-wrap')) closeHeaderMenu();
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && !headerMenuEl.hidden) closeHeaderMenu();
+  });
+  headerMenuEl.querySelectorAll('.header-menu-item').forEach(btn =>
+    btn.addEventListener('click', () => { closeHeaderMenu(); navigate(btn.dataset.view); })
+  );
 
   const VIEWS = {
     start: renderStart,
@@ -47,8 +82,10 @@
   let gruppenDetailId = null;
   let gruppenPrefillCode = null;
   let gruppenCache = [];
+  let gruppenChatId = null;
 
   function navigate(name) {
+    closeHeaderMenu();
     navButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.view === name));
     location.hash = name;
     gewaesserEditId = null;
@@ -57,11 +94,11 @@
     tripEditId = null;
     mapExpanded = false;
     gruppenDetailId = null;
+    if (gruppenChatId) { SB.unsubscribeFromChat(); gruppenChatId = null; }
     VIEWS[name]();
   }
 
   navButtons.forEach(btn => btn.addEventListener('click', () => navigate(btn.dataset.view)));
-  document.getElementById('settings-btn').addEventListener('click', () => navigate('einstellungen'));
 
   function fmtDate(iso) {
     return new Date(iso).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' });
@@ -258,6 +295,11 @@
             Anzahl deiner erfassten Fänge und dein größter gefangener Fisch (Art + Länge) fürs Leaderboard.
             Einzelne Fangdatensätze, Gewässer-Standorte und Notizen werden <strong>nicht</strong> übertragen und
             bleiben ausschließlich lokal. Ohne Gruppen-Beitritt findet keine Übertragung an Supabase statt.</p>
+          <p>Nutzt du innerhalb einer Gruppe die <strong>Chat-Funktion</strong>, werden die von dir geschriebenen
+            Nachrichten sowie hochgeladene Bilder ebenfalls bei Supabase gespeichert und sind für die Mitglieder
+            dieser Gruppe sichtbar (nicht öffentlich). Bilder werden vor dem Hochladen automatisch verkleinert.
+            Nachrichten kannst du selbst wieder löschen; beim Verlassen einer Gruppe bleiben bereits gesendete
+            Nachrichten für die übrigen Mitglieder bestehen.</p>
 
           <button type="button" id="impressum-back">${fromLogin ? 'Zurück zum Login' : 'Zurück'}</button>
         </div>
@@ -1003,8 +1045,8 @@
     viewEl.innerHTML = `
       <section class="view-section">
         <h2>Angeltrips</h2>
-        <p class="muted">Persönliche Trip-Planung mit Wetterprognose. Freunde einladen, gemeinsames Leaderboard
-          und eine geteilte Spot-Karte sind als nächstes großes Vorhaben geplant (braucht ein Cloud-Backend).</p>
+        <p class="muted">Persönliche Trip-Planung mit Wetterprognose. Eine geteilte Spot-Karte mit Kommentaren
+          ist als nächstes großes Vorhaben angedacht.</p>
         ${gewaesser.length === 0 ? '<p class="muted">Erst unter „Gewässer" ein Gewässer anlegen, um einen Trip zu planen.</p>' : `
         <form id="trip-form" class="card-form">
           <input type="text" name="name" placeholder="Name (optional, z.B. Herbsttour)" value="${editing ? escapeHtml(editing.name || '') : ''}">
@@ -1183,7 +1225,9 @@
     const contentEl = document.getElementById('gruppen-content');
     try {
       await SB.ensureSession();
-      if (gruppenDetailId) {
+      if (gruppenChatId) {
+        await renderGruppenChat(contentEl, gruppenChatId);
+      } else if (gruppenDetailId) {
         await renderGruppenDetail(contentEl, gruppenDetailId);
       } else {
         await renderGruppenList(contentEl);
@@ -1201,6 +1245,7 @@
       <form id="create-group-form" class="card-form">
         <input type="text" name="name" placeholder="Neue Gruppe (Name)" required>
         <button type="submit">Gruppe erstellen</button>
+        <p id="create-group-error" class="login-error" hidden></p>
       </form>
       <form id="join-group-form" class="card-form">
         <input type="text" name="code" placeholder="Einladungscode oder -link" value="${gruppenPrefillCode ? escapeHtml(gruppenPrefillCode) : ''}" required>
@@ -1222,13 +1267,16 @@
     document.getElementById('create-group-form').addEventListener('submit', async e => {
       e.preventDefault();
       const fd = new FormData(e.target);
+      const errorEl = document.getElementById('create-group-error');
+      errorEl.hidden = true;
       try {
         const group = await SB.createGroup(fd.get('name').trim(), Auth.currentDisplayName());
         gruppenCache = [group, ...gruppenCache.filter(g => g.id !== group.id)];
         gruppenDetailId = group.id;
         renderGruppen();
       } catch (err) {
-        alert('Gruppe konnte nicht erstellt werden: ' + err.message);
+        errorEl.textContent = 'Gruppe konnte nicht erstellt werden: ' + err.message;
+        errorEl.hidden = false;
       }
     });
 
@@ -1283,6 +1331,10 @@
         </div>
       </div>
 
+      <button type="button" id="open-chat-btn" class="secondary-btn" style="width:100%; margin-bottom:20px;">
+        ${Icons.svg('send', { size: 17 })} Chat öffnen
+      </button>
+
       <h3>Mitglieder (${members.length})</h3>
       <ul class="list">
         ${members.map(m => `<li class="list-item"><div><strong>${escapeHtml(m.displayName)}</strong></div></li>`).join('')}
@@ -1303,6 +1355,7 @@
     `;
 
     document.getElementById('back-to-groups').addEventListener('click', () => { gruppenDetailId = null; renderGruppen(); });
+    document.getElementById('open-chat-btn').addEventListener('click', () => { gruppenChatId = groupId; renderGruppen(); });
     document.getElementById('copy-invite-btn').addEventListener('click', () => {
       const input = document.getElementById('invite-link-input');
       input.select();
@@ -1310,6 +1363,203 @@
       navigator.clipboard?.writeText(inviteLink)
         .then(() => { btn.textContent = 'Kopiert!'; setTimeout(() => { btn.textContent = 'Kopieren'; }, 1500); })
         .catch(() => {});
+    });
+  }
+
+  const REACTION_EMOJIS = ['👍', '❤️', '😂', '🎣', '😮', '🔥'];
+
+  function openLightbox(url) {
+    const overlay = document.createElement('div');
+    overlay.className = 'lightbox-overlay';
+    overlay.innerHTML = `<img src="${url}" alt="">`;
+    overlay.addEventListener('click', () => overlay.remove());
+    document.body.appendChild(overlay);
+  }
+
+  function fmtChatTime(iso) {
+    return new Date(iso).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  async function renderGruppenChat(contentEl, groupId) {
+    let group = gruppenCache.find(g => g.id === groupId);
+    if (!group) { gruppenCache = await SB.listMyGroups(); group = gruppenCache.find(g => g.id === groupId); }
+    if (!group) { contentEl.innerHTML = '<p class="muted">Gruppe nicht gefunden.</p>'; return; }
+
+    contentEl.innerHTML = `
+      <button type="button" id="back-to-group-detail" class="link-btn">
+        ${Icons.svg('chevron', { size: 14, class: 'chevron-back' })} Zurück zur Gruppe
+      </button>
+      <h3>Chat: ${escapeHtml(group.name)}</h3>
+      <div class="chat-messages" id="chat-messages"><p class="muted">Lade Nachrichten…</p></div>
+      <form id="chat-composer" class="chat-composer">
+        <button type="button" id="chat-image-btn" class="chat-icon-btn" aria-label="Bild anhängen">${Icons.svg('image', { size: 20 })}</button>
+        <input type="file" id="chat-image-input" accept="image/*" hidden>
+        <input type="text" id="chat-text-input" placeholder="Nachricht…" autocomplete="off">
+        <button type="submit" class="chat-icon-btn chat-send-btn" aria-label="Senden">${Icons.svg('send', { size: 19 })}</button>
+      </form>
+      <p id="chat-image-name" class="muted" hidden></p>
+    `;
+
+    document.getElementById('back-to-group-detail').addEventListener('click', () => {
+      SB.unsubscribeFromChat();
+      gruppenChatId = null;
+      renderGruppen();
+    });
+
+    const messagesEl = document.getElementById('chat-messages');
+    const myId = SB.myUserId();
+    let messages = [];
+    let reactionsByMessage = {};
+    let signedUrls = {};
+    let pendingImageFile = null;
+    let nameByUserId = {};
+
+    try {
+      const members = await SB.listMembers(groupId);
+      members.forEach(m => { nameByUserId[m.userId] = m.displayName; });
+    } catch { /* Namen-Lookup ist nur ein Komfort-Fallback, Chat funktioniert auch ohne */ }
+
+    function reactionCounts(messageId) {
+      const rows = reactionsByMessage[messageId] || [];
+      const byEmoji = {};
+      rows.forEach(r => {
+        const entry = byEmoji[r.emoji] || { count: 0, mine: false };
+        entry.count += 1;
+        if (r.userId === myId) entry.mine = true;
+        byEmoji[r.emoji] = entry;
+      });
+      return byEmoji;
+    }
+
+    function renderMessages(scrollToBottom) {
+      const wasNearBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 80;
+      messagesEl.innerHTML = messages.map(m => {
+        const own = m.userId === myId;
+        const counts = reactionCounts(m.id);
+        const reactionsHtml = REACTION_EMOJIS.map(e => {
+          const entry = counts[e] || { count: 0, mine: false };
+          return `<button type="button" class="reaction-btn${entry.mine ? ' reaction-mine' : ''}" data-message-id="${m.id}" data-emoji="${e}">${e}${entry.count > 0 ? ` ${entry.count}` : ''}</button>`;
+        }).join('');
+        return `
+          <div class="chat-msg${own ? ' chat-msg-own' : ''}">
+            ${!own ? `<div class="chat-msg-name">${escapeHtml(nameByUserId[m.userId] || m.displayName || '?')}</div>` : ''}
+            <div class="chat-bubble">
+              ${m.imagePath && signedUrls[m.imagePath] ? `<img class="chat-img" src="${signedUrls[m.imagePath]}" data-url="${signedUrls[m.imagePath]}">` : ''}
+              ${m.body ? `<p>${escapeHtml(m.body)}</p>` : ''}
+              <div class="chat-msg-meta">
+                <span class="chat-msg-time">${fmtChatTime(m.createdAt)}</span>
+                ${own ? `<button type="button" class="chat-delete-btn" data-id="${m.id}">${Icons.svg('trash', { size: 13 })}</button>` : ''}
+              </div>
+            </div>
+            <div class="chat-reactions">${reactionsHtml}</div>
+          </div>
+        `;
+      }).join('') || '<p class="muted">Noch keine Nachrichten. Schreib die erste!</p>';
+
+      messagesEl.querySelectorAll('.chat-img').forEach(img =>
+        img.addEventListener('click', () => openLightbox(img.dataset.url))
+      );
+      messagesEl.querySelectorAll('.chat-delete-btn').forEach(btn =>
+        btn.addEventListener('click', async () => {
+          if (!confirmDelete('diese Nachricht')) return;
+          try {
+            await SB.deleteMessage(btn.dataset.id);
+            messages = messages.filter(m => m.id !== btn.dataset.id);
+            renderMessages(false);
+          } catch { /* still nichts tun, Verbindung evtl. gerade weg */ }
+        })
+      );
+      messagesEl.querySelectorAll('.reaction-btn').forEach(btn =>
+        btn.addEventListener('click', async () => {
+          const { messageId, emoji } = btn.dataset;
+          try {
+            await SB.toggleReaction(messageId, emoji);
+            const rows = reactionsByMessage[messageId] || [];
+            const idx = rows.findIndex(r => r.userId === myId && r.emoji === emoji);
+            if (idx >= 0) rows.splice(idx, 1); else rows.push({ messageId, userId: myId, emoji });
+            reactionsByMessage[messageId] = rows;
+            renderMessages(false);
+          } catch { /* still nichts tun */ }
+        })
+      );
+
+      if (scrollToBottom || wasNearBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    async function loadAll() {
+      messages = await SB.listMessages(groupId);
+      const ids = messages.map(m => m.id);
+      const [reactions, urls] = await Promise.all([
+        SB.listReactions(ids),
+        SB.getSignedImageUrls(messages.filter(m => m.imagePath).map(m => m.imagePath)),
+      ]);
+      reactionsByMessage = {};
+      reactions.forEach(r => { (reactionsByMessage[r.messageId] ||= []).push(r); });
+      signedUrls = urls;
+      renderMessages(true);
+    }
+
+    await loadAll();
+
+    SB.subscribeToChat(groupId, {
+      onMessage: async newRow => {
+        if (messages.some(m => m.id === newRow.id)) return;
+        const msg = { id: newRow.id, userId: newRow.user_id, body: newRow.body, imagePath: newRow.image_path, createdAt: newRow.created_at };
+        messages.push(msg);
+        if (msg.imagePath && !signedUrls[msg.imagePath]) {
+          try { Object.assign(signedUrls, await SB.getSignedImageUrls([msg.imagePath])); } catch { /* Bild bleibt dann leer */ }
+        }
+        renderMessages(false);
+      },
+      onMessageDelete: oldRow => {
+        messages = messages.filter(m => m.id !== oldRow.id);
+        renderMessages(false);
+      },
+      onReactionChange: async () => {
+        try {
+          const ids = messages.map(m => m.id);
+          const reactions = await SB.listReactions(ids);
+          reactionsByMessage = {};
+          reactions.forEach(r => { (reactionsByMessage[r.messageId] ||= []).push(r); });
+          renderMessages(false);
+        } catch { /* still nichts tun */ }
+      },
+    });
+
+    const imageInput = document.getElementById('chat-image-input');
+    const imageNameEl = document.getElementById('chat-image-name');
+    document.getElementById('chat-image-btn').addEventListener('click', () => imageInput.click());
+    imageInput.addEventListener('change', () => {
+      pendingImageFile = imageInput.files[0] || null;
+      imageNameEl.textContent = pendingImageFile ? `📎 ${pendingImageFile.name} (wird beim Senden angehängt)` : '';
+      imageNameEl.hidden = !pendingImageFile;
+    });
+
+    document.getElementById('chat-composer').addEventListener('submit', async e => {
+      e.preventDefault();
+      const textInput = document.getElementById('chat-text-input');
+      const body = textInput.value.trim();
+      if (!body && !pendingImageFile) return;
+      const submitBtn = e.target.querySelector('.chat-send-btn');
+      submitBtn.disabled = true;
+      try {
+        let imagePath = null;
+        if (pendingImageFile) imagePath = await SB.uploadChatImage(groupId, pendingImageFile);
+        const sent = await SB.sendMessage(groupId, body, imagePath);
+        if (!messages.some(m => m.id === sent.id)) {
+          messages.push({ id: sent.id, userId: myId, body: sent.body, imagePath: sent.imagePath, createdAt: sent.createdAt });
+          if (imagePath) Object.assign(signedUrls, await SB.getSignedImageUrls([imagePath]));
+          renderMessages(true);
+        }
+        textInput.value = '';
+        pendingImageFile = null;
+        imageInput.value = '';
+        imageNameEl.hidden = true;
+      } catch (err) {
+        alert('Nachricht konnte nicht gesendet werden: ' + err.message);
+      } finally {
+        submitBtn.disabled = false;
+      }
     });
   }
 
