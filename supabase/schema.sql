@@ -164,7 +164,24 @@ begin
 end;
 $$;
 
-create or replace function sync_stats(p_group_id uuid, p_total int, p_art text, p_laenge numeric)
+create or replace function leave_group(p_group_id uuid)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  delete from group_stats where group_id = p_group_id and user_id = auth.uid();
+  delete from group_members where group_id = p_group_id and user_id = auth.uid();
+end;
+$$;
+
+alter table group_stats add column if not exists last_fish_art text;
+alter table group_stats add column if not exists last_fish_koeder text;
+alter table group_stats add column if not exists last_fish_image_path text;
+
+create or replace function sync_stats(
+  p_group_id uuid, p_total int, p_art text, p_laenge numeric,
+  p_last_art text default null, p_last_koeder text default null, p_last_image_path text default null
+)
 returns void
 language plpgsql security definer set search_path = public
 as $$
@@ -173,12 +190,18 @@ begin
     raise exception 'not_a_member';
   end if;
 
-  insert into group_stats (group_id, user_id, total_faenge, biggest_fish_art, biggest_fish_laenge, updated_at)
-  values (p_group_id, auth.uid(), p_total, p_art, p_laenge, now())
+  insert into group_stats (
+    group_id, user_id, total_faenge, biggest_fish_art, biggest_fish_laenge,
+    last_fish_art, last_fish_koeder, last_fish_image_path, updated_at
+  )
+  values (p_group_id, auth.uid(), p_total, p_art, p_laenge, p_last_art, p_last_koeder, p_last_image_path, now())
   on conflict (group_id, user_id) do update set
     total_faenge = excluded.total_faenge,
     biggest_fish_art = excluded.biggest_fish_art,
     biggest_fish_laenge = excluded.biggest_fish_laenge,
+    last_fish_art = excluded.last_fish_art,
+    last_fish_koeder = excluded.last_fish_koeder,
+    last_fish_image_path = excluded.last_fish_image_path,
     updated_at = now();
 end;
 $$;
@@ -271,4 +294,28 @@ create policy "chat_images_select" on storage.objects for select using (
 drop policy if exists "chat_images_insert" on storage.objects;
 create policy "chat_images_insert" on storage.objects for insert with check (
   bucket_id = 'group-chat' and is_group_member((storage.foldername(name))[1]::uuid)
+);
+
+-- Privater Storage-Bucket fürs Leaderboard ("zuletzt gefangener Fisch").
+-- Fester Dateiname pro Nutzer+Gruppe (<groupId>/<userId>-latest.jpg) statt
+-- zufälligem Namen wie beim Chat, damit ein erneuter Sync das alte Foto
+-- überschreibt (upsert) statt verwaiste Dateien anzuhäufen - braucht daher
+-- zusätzlich eine UPDATE-Policy, die Chat-Bilder nicht brauchen.
+insert into storage.buckets (id, name, public)
+values ('group-catches', 'group-catches', false)
+on conflict (id) do nothing;
+
+drop policy if exists "catch_images_select" on storage.objects;
+create policy "catch_images_select" on storage.objects for select using (
+  bucket_id = 'group-catches' and is_group_member((storage.foldername(name))[1]::uuid)
+);
+
+drop policy if exists "catch_images_insert" on storage.objects;
+create policy "catch_images_insert" on storage.objects for insert with check (
+  bucket_id = 'group-catches' and is_group_member((storage.foldername(name))[1]::uuid)
+);
+
+drop policy if exists "catch_images_update" on storage.objects;
+create policy "catch_images_update" on storage.objects for update using (
+  bucket_id = 'group-catches' and is_group_member((storage.foldername(name))[1]::uuid)
 );

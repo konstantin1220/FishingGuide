@@ -417,6 +417,37 @@ main#view {
 
 .list-item-summary {
   cursor: pointer;
+  position: relative;
+  padding-right: 20px;
+}
+
+.edit-hint {
+  position: absolute;
+  top: 2px;
+  right: 0;
+  color: var(--muted);
+  opacity: 0.55;
+}
+
+.foto-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fang-foto-thumb {
+  display: block;
+  max-width: 160px;
+  border-radius: 8px;
+  margin-bottom: 4px;
+}
+
+.fang-foto-thumb-sm {
+  width: 44px;
+  height: 44px;
+  object-fit: cover;
+  border-radius: 8px;
+  flex-shrink: 0;
 }
 
 .muted {
@@ -579,6 +610,30 @@ main#view {
 
 .chat-msg-own .chat-reactions {
   justify-content: flex-end;
+}
+
+.reaction-picker {
+  display: flex;
+  gap: 2px;
+  background: var(--card-bg);
+  border-radius: 999px;
+  padding: 4px;
+  box-shadow: var(--shadow-lg);
+  margin-bottom: 4px;
+}
+
+.reaction-picker-emoji {
+  background: none;
+  border: none;
+  font-size: 1.3rem;
+  padding: 4px 6px;
+  cursor: pointer;
+  border-radius: 50%;
+  line-height: 1;
+}
+
+.reaction-picker-emoji:active {
+  background: var(--bg);
 }
 
 .reaction-btn {

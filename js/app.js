@@ -552,6 +552,7 @@
                 <strong>${escapeHtml(g.name)}</strong>
                 <div class="muted">${g.lat}, ${g.lon}</div>
                 ${g.notiz ? `<div class="muted">${escapeHtml(g.notiz)}</div>` : ''}
+                ${Icons.svg('edit', { size: 13, class: 'edit-hint' })}
               </div>
               <button class="delete-btn" data-id="${g.id}" data-label="${escapeHtml(g.name)}">${Icons.svg('trash', { size: 18 })}</button>
             </li>
@@ -709,6 +710,11 @@
           </select>
           <input type="datetime-local" name="datum" required>
           <textarea name="notiz" placeholder="Notiz (optional)">${editing ? escapeHtml(editing.notiz || '') : ''}</textarea>
+          <div class="foto-field">
+            <input type="file" id="fang-foto-input" accept="image/*" hidden>
+            <button type="button" id="fang-foto-btn" class="secondary-btn">${Icons.svg('image', { size: 18 })} ${editing?.foto ? 'Foto ändern' : 'Foto hinzufügen (optional)'}</button>
+            <div id="fang-foto-preview">${editing?.foto ? `<img src="${editing.foto}" class="fang-foto-thumb"><button type="button" id="fang-foto-remove" class="link-btn">Foto entfernen</button>` : ''}</div>
+          </div>
           <div class="row">
             <button type="submit">${editing ? 'Speichern' : 'Fang eintragen'}</button>
             ${editing ? '<button type="button" id="cancel-edit" class="secondary-btn">Abbrechen</button>' : ''}
@@ -718,11 +724,13 @@
         <ul class="list">
           ${items.map(f => `
             <li class="list-item">
+              ${f.foto ? `<img src="${f.foto}" class="fang-foto-thumb-sm">` : ''}
               <div class="list-item-summary" data-id="${f.id}">
                 <strong>${escapeHtml(f.art)}</strong>
                 ${f.laenge ? ` · ${f.laenge} cm` : ''}${f.gewicht ? ` · ${f.gewicht} g` : ''}
                 <div class="muted">${fmtDate(f.datum)} · ${escapeHtml(gName(f.gewaesserId))}${f.koederId ? ' · ' + escapeHtml(kName(f.koederId)) : ''}</div>
                 ${f.notiz ? `<div class="muted">${escapeHtml(f.notiz)}</div>` : ''}
+                ${Icons.svg('edit', { size: 13, class: 'edit-hint' })}
               </div>
               <button class="delete-btn" data-id="${f.id}" data-label="${escapeHtml(f.art)}">${Icons.svg('trash', { size: 18 })}</button>
             </li>
@@ -735,6 +743,36 @@
     if (form) {
       form.querySelector('[name="datum"]').value = toDatetimeLocalValue(editing ? new Date(editing.datum) : new Date());
 
+      let pendingFoto = editing?.foto || null;
+      const fotoInput = document.getElementById('fang-foto-input');
+      const fotoPreview = document.getElementById('fang-foto-preview');
+      const wireFotoRemove = () => {
+        const removeBtn = document.getElementById('fang-foto-remove');
+        if (removeBtn) removeBtn.addEventListener('click', () => {
+          pendingFoto = null;
+          fotoPreview.innerHTML = '';
+          fotoInput.value = '';
+        });
+      };
+      wireFotoRemove();
+      document.getElementById('fang-foto-btn').addEventListener('click', () => fotoInput.click());
+      fotoInput.addEventListener('change', async () => {
+        const file = fotoInput.files[0];
+        if (!file) return;
+        try {
+          const blob = await SB.compressImage(file, { maxSide: 640, quality: 0.65 });
+          const dataUrl = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+          pendingFoto = dataUrl;
+          fotoPreview.innerHTML = `<img src="${pendingFoto}" class="fang-foto-thumb"><button type="button" id="fang-foto-remove" class="link-btn">Foto entfernen</button>`;
+          wireFotoRemove();
+        } catch { /* Foto konnte nicht verarbeitet werden - Eintrag bleibt einfach ohne Foto */ }
+      });
+
       form.addEventListener('submit', e => {
         e.preventDefault();
         const fd = new FormData(e.target);
@@ -746,6 +784,7 @@
           koederId: fd.get('koederId') || null,
           datum: new Date(fd.get('datum')).toISOString(),
           notiz: fd.get('notiz').trim(),
+          foto: pendingFoto,
         };
         if (fangEditId) {
           Storage.faenge.update(fangEditId, data);
@@ -819,6 +858,7 @@
                   <strong>${escapeHtml(k.name)}</strong>${k.kategorie ? ` · ${escapeHtml(k.kategorie)}` : ''}
                   <div class="muted">Bestand: ${k.anzahl ?? '–'}${k.fuehrung && techniken[k.fuehrung] ? ' · ' + escapeHtml(techniken[k.fuehrung].label) : ''}</div>
                   ${k.notiz ? `<div class="muted">${escapeHtml(k.notiz)}</div>` : ''}
+                  ${Icons.svg('edit', { size: 13, class: 'edit-hint' })}
                 </div>
                 ${k.fuehrung && techniken[k.fuehrung] ? `
                   <button type="button" class="link-btn toggle-fuehrung" data-id="${k.id}">
@@ -1067,6 +1107,7 @@
                   <strong>${escapeHtml(t.name || `Trip ${fmtStopRange(tripStartDate(t), tripEndDate(t))}`)}</strong>
                   <div class="muted">${fmtStopRange(tripStartDate(t), tripEndDate(t))}</div>
                   ${t.notiz ? `<div class="muted">${escapeHtml(t.notiz)}</div>` : ''}
+                  ${Icons.svg('edit', { size: 13, class: 'edit-hint' })}
                 </div>
                 <div class="trip-stops-list">
                   ${t.stops.map((s, i) => `
@@ -1190,23 +1231,42 @@
 
   function computeMyStats() {
     const faenge = Storage.faenge.list();
+    const koeder = Storage.koeder.list();
     let biggestArt = null;
     let biggestLaenge = null;
+    let lastFang = null;
     faenge.forEach(f => {
       if (f.laenge != null && (biggestLaenge === null || f.laenge > biggestLaenge)) {
         biggestLaenge = f.laenge;
         biggestArt = f.art;
       }
+      if (!lastFang || new Date(f.datum) > new Date(lastFang.datum)) lastFang = f;
     });
-    return { total: faenge.length, biggestArt, biggestLaenge };
+    return {
+      total: faenge.length,
+      biggestArt,
+      biggestLaenge,
+      lastArt: lastFang?.art || null,
+      lastKoeder: lastFang?.koederId ? (koeder.find(k => k.id === lastFang.koederId)?.name || null) : null,
+      lastFoto: lastFang?.foto || null,
+    };
   }
 
   async function syncStatsToAllGroups() {
     if (localStorage.getItem('fg_gruppen_used') !== '1') return;
     try {
-      const { total, biggestArt, biggestLaenge } = computeMyStats();
+      const { total, biggestArt, biggestLaenge, lastArt, lastKoeder, lastFoto } = computeMyStats();
       const groups = await SB.listMyGroups();
-      await Promise.all(groups.map(g => SB.syncStats(g.id, total, biggestArt, biggestLaenge).catch(() => {})));
+      let lastFotoBlob = null;
+      if (lastFoto) {
+        try { lastFotoBlob = await (await fetch(lastFoto)).blob(); } catch { /* Foto bleibt dann beim Sync einfach weg */ }
+      }
+      await Promise.all(groups.map(async g => {
+        try {
+          const imagePath = lastFotoBlob ? await SB.uploadCatchImage(g.id, lastFotoBlob) : null;
+          await SB.syncStats(g.id, total, biggestArt, biggestLaenge, lastArt, lastKoeder, imagePath);
+        } catch { /* einzelne Gruppe egal, Rest soll trotzdem synchronisieren */ }
+      }));
     } catch {
       // Supabase gerade nicht erreichbar (z.B. offline) - stiller Fehlschlag, blockiert die App nicht.
     }
@@ -1331,9 +1391,10 @@
         </div>
       </div>
 
-      <button type="button" id="open-chat-btn" class="secondary-btn" style="width:100%; margin-bottom:20px;">
+      <button type="button" id="open-chat-btn" class="secondary-btn" style="width:100%; margin-bottom:10px;">
         ${Icons.svg('send', { size: 17 })} Chat öffnen
       </button>
+      <button type="button" id="leave-group-btn" class="link-btn" style="margin-bottom:20px;">Gruppe verlassen</button>
 
       <h3>Mitglieder (${members.length})</h3>
       <ul class="list">
@@ -1345,9 +1406,11 @@
         ${leaderboard.map((s, i) => `
           <li class="list-item leaderboard-item">
             <span class="leaderboard-rank">${i + 1}.</span>
+            ${s.lastFishImageUrl ? `<img src="${s.lastFishImageUrl}" class="fang-foto-thumb-sm">` : ''}
             <div class="list-item-body">
               <strong>${escapeHtml(s.displayName)}</strong>
               <div class="muted">${s.totalFaenge} Fänge${s.biggestFishArt ? ` · Größter: ${escapeHtml(s.biggestFishArt)} (${s.biggestFishLaenge} cm)` : ''}</div>
+              ${s.lastFishArt ? `<div class="muted">Zuletzt: ${escapeHtml(s.lastFishArt)}${s.lastFishKoeder ? ' · ' + escapeHtml(s.lastFishKoeder) : ''}</div>` : ''}
             </div>
           </li>
         `).join('') || '<li class="muted">Noch keine Statistik vorhanden.</li>'}
@@ -1356,6 +1419,17 @@
 
     document.getElementById('back-to-groups').addEventListener('click', () => { gruppenDetailId = null; renderGruppen(); });
     document.getElementById('open-chat-btn').addEventListener('click', () => { gruppenChatId = groupId; renderGruppen(); });
+    document.getElementById('leave-group-btn').addEventListener('click', async () => {
+      if (!confirm(`Gruppe „${group.name}" wirklich verlassen? Du kannst jederzeit per Einladungslink erneut beitreten.`)) return;
+      try {
+        await SB.leaveGroup(groupId);
+        gruppenCache = gruppenCache.filter(g => g.id !== groupId);
+        gruppenDetailId = null;
+        renderGruppen();
+      } catch (err) {
+        alert('Gruppe konnte nicht verlassen werden: ' + err.message);
+      }
+    });
     document.getElementById('copy-invite-btn').addEventListener('click', () => {
       const input = document.getElementById('invite-link-input');
       input.select();
@@ -1413,6 +1487,7 @@
     let signedUrls = {};
     let pendingImageFile = null;
     let nameByUserId = {};
+    let reactionPickerId = null;
 
     try {
       const members = await SB.listMembers(groupId);
@@ -1431,19 +1506,41 @@
       return byEmoji;
     }
 
+    async function applyReactionToggle(messageId, emoji) {
+      try {
+        await SB.toggleReaction(messageId, emoji);
+        const rows = reactionsByMessage[messageId] || [];
+        const idx = rows.findIndex(r => r.userId === myId && r.emoji === emoji);
+        if (idx >= 0) rows.splice(idx, 1); else rows.push({ messageId, userId: myId, emoji });
+        reactionsByMessage[messageId] = rows;
+        reactionPickerId = null;
+        renderMessages(false);
+      } catch { /* still nichts tun */ }
+    }
+
     function renderMessages(scrollToBottom) {
       const wasNearBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 80;
       messagesEl.innerHTML = messages.map(m => {
         const own = m.userId === myId;
         const counts = reactionCounts(m.id);
-        const reactionsHtml = REACTION_EMOJIS.map(e => {
-          const entry = counts[e] || { count: 0, mine: false };
-          return `<button type="button" class="reaction-btn${entry.mine ? ' reaction-mine' : ''}" data-message-id="${m.id}" data-emoji="${e}">${e}${entry.count > 0 ? ` ${entry.count}` : ''}</button>`;
+        // WhatsApp-Prinzip: nur tatsächlich gesetzte Reaktionen als Pills
+        // zeigen (nicht dauerhaft alle 6 Emoji) - neue Reaktion kommt über
+        // den Long-Press-Picker unten dazu.
+        const usedEmojis = REACTION_EMOJIS.filter(e => counts[e]?.count > 0);
+        const reactionsHtml = usedEmojis.map(e => {
+          const entry = counts[e];
+          return `<button type="button" class="reaction-btn${entry.mine ? ' reaction-mine' : ''}" data-message-id="${m.id}" data-emoji="${e}">${e} ${entry.count}</button>`;
         }).join('');
+        const pickerHtml = reactionPickerId === m.id ? `
+          <div class="reaction-picker" data-message-id="${m.id}">
+            ${REACTION_EMOJIS.map(e => `<button type="button" class="reaction-picker-emoji" data-message-id="${m.id}" data-emoji="${e}">${e}</button>`).join('')}
+          </div>
+        ` : '';
         return `
           <div class="chat-msg${own ? ' chat-msg-own' : ''}">
             ${!own ? `<div class="chat-msg-name">${escapeHtml(nameByUserId[m.userId] || m.displayName || '?')}</div>` : ''}
-            <div class="chat-bubble">
+            ${pickerHtml}
+            <div class="chat-bubble" data-message-id="${m.id}">
               ${m.imagePath && signedUrls[m.imagePath] ? `<img class="chat-img" src="${signedUrls[m.imagePath]}" data-url="${signedUrls[m.imagePath]}">` : ''}
               ${m.body ? `<p>${escapeHtml(m.body)}</p>` : ''}
               <div class="chat-msg-meta">
@@ -1451,7 +1548,7 @@
                 ${own ? `<button type="button" class="chat-delete-btn" data-id="${m.id}">${Icons.svg('trash', { size: 13 })}</button>` : ''}
               </div>
             </div>
-            <div class="chat-reactions">${reactionsHtml}</div>
+            ${reactionsHtml ? `<div class="chat-reactions">${reactionsHtml}</div>` : ''}
           </div>
         `;
       }).join('') || '<p class="muted">Noch keine Nachrichten. Schreib die erste!</p>';
@@ -1460,31 +1557,50 @@
         img.addEventListener('click', () => openLightbox(img.dataset.url))
       );
       messagesEl.querySelectorAll('.chat-delete-btn').forEach(btn =>
-        btn.addEventListener('click', async () => {
+        btn.addEventListener('click', e => {
+          e.stopPropagation();
           if (!confirmDelete('diese Nachricht')) return;
-          try {
-            await SB.deleteMessage(btn.dataset.id);
+          SB.deleteMessage(btn.dataset.id).then(() => {
             messages = messages.filter(m => m.id !== btn.dataset.id);
             renderMessages(false);
-          } catch { /* still nichts tun, Verbindung evtl. gerade weg */ }
+          }).catch(() => { /* still nichts tun, Verbindung evtl. gerade weg */ });
         })
       );
       messagesEl.querySelectorAll('.reaction-btn').forEach(btn =>
-        btn.addEventListener('click', async () => {
-          const { messageId, emoji } = btn.dataset;
-          try {
-            await SB.toggleReaction(messageId, emoji);
-            const rows = reactionsByMessage[messageId] || [];
-            const idx = rows.findIndex(r => r.userId === myId && r.emoji === emoji);
-            if (idx >= 0) rows.splice(idx, 1); else rows.push({ messageId, userId: myId, emoji });
-            reactionsByMessage[messageId] = rows;
-            renderMessages(false);
-          } catch { /* still nichts tun */ }
-        })
+        btn.addEventListener('click', () => applyReactionToggle(btn.dataset.messageId, btn.dataset.emoji))
       );
+      messagesEl.querySelectorAll('.reaction-picker-emoji').forEach(btn =>
+        btn.addEventListener('click', e => { e.stopPropagation(); applyReactionToggle(btn.dataset.messageId, btn.dataset.emoji); })
+      );
+
+      // Long-Press (Pointer gedrückt halten, ~450ms) auf eine Nachricht
+      // öffnet den Reaktions-Picker - wie bei WhatsApp, statt die Emoji-
+      // Leiste permanent einzublenden.
+      messagesEl.querySelectorAll('.chat-bubble').forEach(bubble => {
+        let pressTimer = null;
+        const cancel = () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } };
+        bubble.addEventListener('pointerdown', () => {
+          cancel();
+          pressTimer = setTimeout(() => {
+            reactionPickerId = bubble.dataset.messageId;
+            renderMessages(false);
+          }, 450);
+        });
+        bubble.addEventListener('pointerup', cancel);
+        bubble.addEventListener('pointermove', cancel);
+        bubble.addEventListener('pointercancel', cancel);
+        bubble.addEventListener('pointerleave', cancel);
+      });
 
       if (scrollToBottom || wasNearBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
     }
+
+    messagesEl.addEventListener('click', e => {
+      if (reactionPickerId && !e.target.closest('.reaction-picker')) {
+        reactionPickerId = null;
+        renderMessages(false);
+      }
+    });
 
     async function loadAll() {
       messages = await SB.listMessages(groupId);

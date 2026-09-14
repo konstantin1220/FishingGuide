@@ -63,6 +63,12 @@ const SB = (() => {
     return data;
   }
 
+  async function leaveGroup(groupId) {
+    await ensureSession();
+    const { error } = await client.rpc('leave_group', { p_group_id: groupId });
+    if (error) throw error;
+  }
+
   async function listMyGroups() {
     await ensureSession();
     const { data, error } = await client.from('groups').select('*').order('created_at', { ascending: false });
@@ -84,26 +90,44 @@ const SB = (() => {
     await ensureSession();
     const { data, error } = await client
       .from('group_stats')
-      .select('user_id, total_faenge, biggest_fish_art, biggest_fish_laenge, profiles!user_id(display_name)')
+      .select(`
+        user_id, total_faenge, biggest_fish_art, biggest_fish_laenge,
+        last_fish_art, last_fish_koeder, last_fish_image_path,
+        profiles!user_id(display_name)
+      `)
       .eq('group_id', groupId)
       .order('total_faenge', { ascending: false });
     if (error) throw error;
+    const imagePaths = data.filter(s => s.last_fish_image_path).map(s => s.last_fish_image_path);
+    const signedUrls = imagePaths.length
+      ? await client.storage.from('group-catches').createSignedUrls(imagePaths, 3600).then(r => {
+        const map = {};
+        (r.data || []).forEach(d => { if (d.signedUrl) map[d.path] = d.signedUrl; });
+        return map;
+      })
+      : {};
     return data.map(s => ({
       userId: s.user_id,
       displayName: s.profiles?.display_name || '?',
       totalFaenge: s.total_faenge,
       biggestFishArt: s.biggest_fish_art,
       biggestFishLaenge: s.biggest_fish_laenge,
+      lastFishArt: s.last_fish_art,
+      lastFishKoeder: s.last_fish_koeder,
+      lastFishImageUrl: s.last_fish_image_path ? signedUrls[s.last_fish_image_path] : null,
     }));
   }
 
-  async function syncStats(groupId, totalFaenge, biggestFishArt, biggestFishLaenge) {
+  async function syncStats(groupId, totalFaenge, biggestFishArt, biggestFishLaenge, lastFishArt, lastFishKoeder, lastFishImagePath) {
     await ensureSession();
     const { error } = await client.rpc('sync_stats', {
       p_group_id: groupId,
       p_total: totalFaenge,
       p_art: biggestFishArt,
       p_laenge: biggestFishLaenge,
+      p_last_art: lastFishArt || null,
+      p_last_koeder: lastFishKoeder || null,
+      p_last_image_path: lastFishImagePath || null,
     });
     if (error) throw error;
   }
@@ -146,20 +170,21 @@ const SB = (() => {
     if (error) throw error;
   }
 
-  // Skaliert/komprimiert ein Bild clientseitig (max. 1600px Kante, JPEG ~0.82),
-  // damit hochgeladene Fotos nicht unnötig Speicherplatz im Free-Tier fressen.
-  function compressImage(file) {
+  // Skaliert/komprimiert ein Bild clientseitig, damit hochgeladene Fotos
+  // nicht unnötig Speicherplatz fressen. maxSide/quality konfigurierbar,
+  // da Chat-Bilder (Vollbild-Ansicht) größer bleiben dürfen als kleine
+  // Leaderboard-Teaser-Fotos (siehe uploadCatchImage/Fanglog).
+  function compressImage(file, { maxSide = 1600, quality = 0.82 } = {}) {
     return new Promise((resolve, reject) => {
       const img = new Image();
       img.onload = () => {
-        const maxSide = 1600;
         const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
         const canvas = document.createElement('canvas');
         canvas.width = Math.round(img.width * scale);
         canvas.height = Math.round(img.height * scale);
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        canvas.toBlob(blob => (blob ? resolve(blob) : reject(new Error('Bild konnte nicht verarbeitet werden.'))), 'image/jpeg', 0.82);
+        canvas.toBlob(blob => (blob ? resolve(blob) : reject(new Error('Bild konnte nicht verarbeitet werden.'))), 'image/jpeg', quality);
         URL.revokeObjectURL(img.src);
       };
       img.onerror = () => reject(new Error('Bild konnte nicht gelesen werden.'));
@@ -172,6 +197,16 @@ const SB = (() => {
     const blob = await compressImage(file);
     const path = `${groupId}/${crypto.randomUUID()}.jpg`;
     const { error } = await client.storage.from('group-chat').upload(path, blob, { contentType: 'image/jpeg' });
+    if (error) throw error;
+    return path;
+  }
+
+  // Fester Dateiname pro Nutzer+Gruppe: ein erneuter Sync überschreibt das
+  // vorherige Foto (upsert), statt verwaiste Dateien anzuhäufen.
+  async function uploadCatchImage(groupId, blob) {
+    await ensureSession();
+    const path = `${groupId}/${currentUserId}-latest.jpg`;
+    const { error } = await client.storage.from('group-catches').upload(path, blob, { contentType: 'image/jpeg', upsert: true });
     if (error) throw error;
     return path;
   }
@@ -232,8 +267,8 @@ const SB = (() => {
   }
 
   return {
-    setAccount, ensureSession, myUserId, createGroup, joinGroup, listMyGroups, listMembers, listLeaderboard, syncStats,
-    listMessages, sendMessage, deleteMessage, uploadChatImage, getSignedImageUrls, listReactions, toggleReaction,
+    setAccount, ensureSession, myUserId, createGroup, joinGroup, leaveGroup, listMyGroups, listMembers, listLeaderboard, syncStats,
+    listMessages, sendMessage, deleteMessage, compressImage, uploadChatImage, uploadCatchImage, getSignedImageUrls, listReactions, toggleReaction,
     subscribeToChat, unsubscribeFromChat,
   };
 })();
