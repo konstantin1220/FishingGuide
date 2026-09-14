@@ -30,22 +30,38 @@ create table if not exists groups (
   created_at timestamptz default now()
 );
 
+-- user_id verweist bewusst auf profiles(id) statt direkt auf auth.users(id):
+-- PostgREST kann verschachtelte Selects (z.B. group_members -> profiles)
+-- nur automatisch auflösen, wenn zwischen den beiden abgefragten Tabellen
+-- selbst ein Fremdschlüssel besteht. Ohne das schlägt das Frontend beim
+-- Laden von Mitgliederliste/Leaderboard fehl ("Could not find a
+-- relationship between 'group_members' and 'profiles'").
 create table if not exists group_members (
   group_id uuid references groups(id) on delete cascade,
-  user_id uuid references auth.users(id) on delete cascade,
+  user_id uuid references profiles(id) on delete cascade,
   joined_at timestamptz default now(),
   primary key (group_id, user_id)
 );
 
 create table if not exists group_stats (
   group_id uuid references groups(id) on delete cascade,
-  user_id uuid references auth.users(id) on delete cascade,
+  user_id uuid references profiles(id) on delete cascade,
   total_faenge int default 0,
   biggest_fish_art text,
   biggest_fish_laenge numeric,
   updated_at timestamptz default now(),
   primary key (group_id, user_id)
 );
+
+-- Migration für bereits bestehende Installationen (Fremdschlüssel nachträglich
+-- von auth.users auf profiles umgehängt, siehe Kommentar oben bei group_members):
+alter table group_members drop constraint if exists group_members_user_id_fkey;
+alter table group_members add constraint group_members_user_id_fkey
+  foreign key (user_id) references profiles(id) on delete cascade;
+
+alter table group_stats drop constraint if exists group_stats_user_id_fkey;
+alter table group_stats add constraint group_stats_user_id_fkey
+  foreign key (user_id) references profiles(id) on delete cascade;
 
 -- ---------- Row-Level-Security ----------
 
@@ -108,6 +124,10 @@ declare
   v_group groups;
   v_code text;
 begin
+  -- profiles-Zeile muss vor group_members existieren (Fremdschlüssel)
+  insert into profiles (id, display_name) values (auth.uid(), p_display_name)
+    on conflict (id) do update set display_name = excluded.display_name, updated_at = now();
+
   v_code := encode(gen_random_bytes(6), 'base64');
   v_code := replace(replace(replace(v_code, '/', '_'), '+', '-'), '=', '');
 
@@ -116,9 +136,6 @@ begin
   returning * into v_group;
 
   insert into group_members (group_id, user_id) values (v_group.id, auth.uid());
-
-  insert into profiles (id, display_name) values (auth.uid(), p_display_name)
-    on conflict (id) do update set display_name = excluded.display_name, updated_at = now();
 
   return v_group;
 end;
@@ -136,11 +153,12 @@ begin
     raise exception 'invalid_code';
   end if;
 
-  insert into group_members (group_id, user_id) values (v_group.id, auth.uid())
-    on conflict do nothing;
-
+  -- profiles-Zeile muss vor group_members existieren (Fremdschlüssel)
   insert into profiles (id, display_name) values (auth.uid(), p_display_name)
     on conflict (id) do update set display_name = excluded.display_name, updated_at = now();
+
+  insert into group_members (group_id, user_id) values (v_group.id, auth.uid())
+    on conflict do nothing;
 
   return v_group;
 end;
