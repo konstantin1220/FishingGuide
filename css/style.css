@@ -189,6 +189,10 @@ main#view {
   box-shadow: var(--shadow-lg);
 }
 
+.dashboard-card-wide {
+  grid-column: 1 / -1;
+}
+
 .dashboard-card-top {
   width: 100%;
   display: flex;
@@ -405,6 +409,41 @@ main#view {
 
 .chevron-open {
   transform: rotate(90deg);
+}
+
+.chevron-back {
+  transform: rotate(180deg);
+}
+
+/* ---------- Gruppen / Leaderboard ---------- */
+
+.invite-link-row {
+  display: flex;
+  gap: 8px;
+}
+
+.invite-link-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.8rem;
+  background: var(--bg);
+  color: var(--muted);
+}
+
+.leaderboard-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.leaderboard-rank {
+  font-weight: 700;
+  color: var(--primary-light);
+  min-width: 22px;
+  text-align: right;
 }
 
 /* ---------- Köderführung ---------- */

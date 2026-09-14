@@ -20,6 +20,9 @@ Smartphone-Homescreen installiert werden, kein App-Store nötig.
   Köderführung, Köderwahl, Angelart und Angelstelle
 - **Angeltrips**: Trip mit mehreren Orten (Stops) und je eigener Zeitspanne planen,
   inkl. Wetterprognose + Köder-Tipps pro Stop
+- **Gruppen**: Gruppe erstellen oder per Einladungslink beitreten, gemeinsames
+  Leaderboard (Anzahl Fänge, größter Fisch) – einzige Funktion mit Cloud-Backend
+  (Supabase), siehe unten
 - **Einstellungen**: Datenexport/-import als JSON-Backup, Impressum & Datenschutz
 
 Alle Daten werden lokal auf dem Gerät gespeichert (`localStorage`), getrennt
@@ -48,9 +51,21 @@ eigentlichen Nutzdaten bleiben trotzdem privat, da sie ausschließlich lokal
 im Browser jedes Nutzers liegen und Passwörter/Einladungscode nur gehasht
 im Code bzw. lokal gespeichert werden.
 
+## Gruppen-Backend (Supabase)
+
+Die Gruppen-/Leaderboard-Funktion ist die einzige, die einen Server braucht.
+Persönliche Angel-Daten bleiben davon unberührt und komplett lokal. Setup
+(einmalig, siehe [`supabase/schema.sql`](supabase/schema.sql)):
+
+1. Supabase-Projekt anlegen (EU-Region)
+2. Unter Authentication → Settings "Allow anonymous sign-ins" aktivieren
+3. `supabase/schema.sql` im SQL-Editor ausführen
+4. Project URL + Publishable Key in `js/supabaseClient.js` eintragen (dort
+   bereits hinterlegt – beide Werte sind bewusst öffentlich, abgesichert wird
+   über Row-Level-Security-Regeln, nicht über Geheimhaltung des Keys)
+
 ## Geplante Ausbaustufen
 
-- Gruppen & Leaderboard mit Challenges, gemeinsame Spot-Karte mit Kommentaren
-  (braucht ein echtes Cloud-Backend wie Firebase/Supabase)
-- Crowdsourced Tiefenkarten pro Gewässer mit Querschnitts-Ansicht an
+- Challenges mit Ablaufdatum, Aktivitäts-Feed in Gruppen
+- Crowdsourced Tiefenwasserkarten pro Gewässer mit Querschnitts-Ansicht an
   einzelnen Spots

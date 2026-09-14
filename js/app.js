@@ -28,6 +28,7 @@
     koeder: renderKoeder,
     wetter: renderWetter,
     trips: renderTrips,
+    gruppen: renderGruppen,
     einstellungen: renderEinstellungen,
     impressum: () => renderImpressum(false),
   };
@@ -43,6 +44,9 @@
   let mapExpanded = false;
   let leafletMap = null;
   let leafletMarker = null;
+  let gruppenDetailId = null;
+  let gruppenPrefillCode = null;
+  let gruppenCache = [];
 
   function navigate(name) {
     navButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.view === name));
@@ -52,6 +56,7 @@
     koederEditId = null;
     tripEditId = null;
     mapExpanded = false;
+    gruppenDetailId = null;
     VIEWS[name]();
   }
 
@@ -245,6 +250,13 @@
             Kartenanzeige/-auswahl an <a href="https://www.openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a>.
             Beide erhalten dabei nur Koordinaten, keine Namen oder Kontaktdaten.</p>
           <p>Der Anzeigename beim Login wird ebenfalls nur lokal auf deinem Gerät gespeichert.</p>
+          <p>Falls du der <strong>Gruppen-Funktion</strong> beitrittst: Dafür wird dein Anzeigename sowie eine
+            zufällige, anonyme technische Kennung an <a href="https://supabase.com" target="_blank" rel="noopener">Supabase</a>
+            (Auftragsverarbeiter, Serverstandort EU/Frankfurt) übertragen und dort gespeichert, solange du Mitglied
+            einer Gruppe bist. Mit den anderen Mitgliedern deiner Gruppe(n) geteilt werden: dein Anzeigename, die
+            Anzahl deiner erfassten Fänge und dein größter gefangener Fisch (Art + Länge) fürs Leaderboard.
+            Einzelne Fangdatensätze, Gewässer-Standorte und Notizen werden <strong>nicht</strong> übertragen und
+            bleiben ausschließlich lokal. Ohne Gruppen-Beitritt findet keine Übertragung an Supabase statt.</p>
 
           <button type="button" id="impressum-back">${fromLogin ? 'Zurück zum Login' : 'Zurück'}</button>
         </div>
@@ -324,6 +336,14 @@
             <span class="dashboard-subtitle">${gewaesser.length
               ? `${gewaesser.length} angelegt · Hauptgewässer: ${escapeHtml(gewaesser[0].name)}`
               : 'Noch keine Gewässer angelegt'}</span>
+          </button>
+          <button class="dashboard-card dashboard-card-wide" data-view="gruppen">
+            <div class="dashboard-card-top">
+              <span class="dashboard-icon">${Icons.svg('users')}</span>
+              <span class="dashboard-chevron">${Icons.svg('chevron', { size: 18 })}</span>
+            </div>
+            <span class="dashboard-title">Gruppen</span>
+            <span class="dashboard-subtitle">Mit Freunden verknüpfen, gemeinsames Leaderboard</span>
           </button>
         </div>
       </section>
@@ -693,6 +713,7 @@
         }
         fangEditId = null;
         renderFanglog();
+        syncStatsToAllGroups();
       });
 
       const cancelBtn = document.getElementById('cancel-edit');
@@ -710,6 +731,7 @@
         Storage.faenge.remove(btn.dataset.id);
         if (fangEditId === btn.dataset.id) fangEditId = null;
         renderFanglog();
+        syncStatsToAllGroups();
       })
     );
   }
@@ -1117,6 +1139,179 @@
     );
   }
 
+  // ---------- Gruppen (Supabase: Gruppen, Mitglieder, Leaderboard) ----------
+  function extractInviteCode(raw) {
+    const match = raw.match(/[?&]join=([^&\s]+)/);
+    return (match ? decodeURIComponent(match[1]) : raw).trim();
+  }
+
+  function computeMyStats() {
+    const faenge = Storage.faenge.list();
+    let biggestArt = null;
+    let biggestLaenge = null;
+    faenge.forEach(f => {
+      if (f.laenge != null && (biggestLaenge === null || f.laenge > biggestLaenge)) {
+        biggestLaenge = f.laenge;
+        biggestArt = f.art;
+      }
+    });
+    return { total: faenge.length, biggestArt, biggestLaenge };
+  }
+
+  async function syncStatsToAllGroups() {
+    if (localStorage.getItem('fg_gruppen_used') !== '1') return;
+    try {
+      const { total, biggestArt, biggestLaenge } = computeMyStats();
+      const groups = await SB.listMyGroups();
+      await Promise.all(groups.map(g => SB.syncStats(g.id, total, biggestArt, biggestLaenge).catch(() => {})));
+    } catch {
+      // Supabase gerade nicht erreichbar (z.B. offline) - stiller Fehlschlag, blockiert die App nicht.
+    }
+  }
+
+  async function renderGruppen() {
+    localStorage.setItem('fg_gruppen_used', '1');
+    viewEl.innerHTML = `
+      <section class="view-section">
+        <h2>Gruppen</h2>
+        <p class="muted">Mit Freunden verknüpft: gemeinsames Leaderboard (Anzahl Fänge, größter Fisch). Einzelne
+          Fangdatensätze und Gewässer-Standorte bleiben privat, nur diese aggregierten Werte werden geteilt.</p>
+        <div id="gruppen-content"><p class="muted">Lade Gruppen…</p></div>
+      </section>
+    `;
+    const contentEl = document.getElementById('gruppen-content');
+    try {
+      await SB.ensureSession();
+      if (gruppenDetailId) {
+        await renderGruppenDetail(contentEl, gruppenDetailId);
+      } else {
+        await renderGruppenList(contentEl);
+      }
+    } catch (err) {
+      contentEl.innerHTML = `<p class="muted">Gruppen aktuell nicht erreichbar (${escapeHtml(err.message)}). Bitte später erneut versuchen.</p>`;
+    }
+  }
+
+  async function renderGruppenList(contentEl) {
+    const groups = await SB.listMyGroups();
+    gruppenCache = groups;
+
+    contentEl.innerHTML = `
+      <form id="create-group-form" class="card-form">
+        <input type="text" name="name" placeholder="Neue Gruppe (Name)" required>
+        <button type="submit">Gruppe erstellen</button>
+      </form>
+      <form id="join-group-form" class="card-form">
+        <input type="text" name="code" placeholder="Einladungscode oder -link" value="${gruppenPrefillCode ? escapeHtml(gruppenPrefillCode) : ''}" required>
+        <button type="submit">Gruppe beitreten</button>
+        <p id="join-error" class="login-error" hidden></p>
+      </form>
+      <ul class="list">
+        ${groups.map(g => `
+          <li class="list-item">
+            <div class="list-item-summary" data-id="${g.id}" style="width:100%">
+              <strong>${escapeHtml(g.name)}</strong>
+            </div>
+          </li>
+        `).join('') || '<li class="muted">Noch in keiner Gruppe.</li>'}
+      </ul>
+    `;
+    gruppenPrefillCode = null;
+
+    document.getElementById('create-group-form').addEventListener('submit', async e => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      try {
+        const group = await SB.createGroup(fd.get('name').trim(), Auth.currentDisplayName());
+        gruppenCache = [group, ...gruppenCache.filter(g => g.id !== group.id)];
+        gruppenDetailId = group.id;
+        renderGruppen();
+      } catch (err) {
+        alert('Gruppe konnte nicht erstellt werden: ' + err.message);
+      }
+    });
+
+    document.getElementById('join-group-form').addEventListener('submit', async e => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const code = extractInviteCode(fd.get('code'));
+      const errorEl = document.getElementById('join-error');
+      errorEl.hidden = true;
+      try {
+        const group = await SB.joinGroup(code, Auth.currentDisplayName());
+        gruppenCache = [group, ...gruppenCache.filter(g => g.id !== group.id)];
+        gruppenDetailId = group.id;
+        renderGruppen();
+        syncStatsToAllGroups();
+      } catch (err) {
+        errorEl.textContent = err.message === 'invalid_code' ? 'Ungültiger Einladungscode.' : 'Beitreten fehlgeschlagen.';
+        errorEl.hidden = false;
+      }
+    });
+
+    contentEl.querySelectorAll('.list-item-summary').forEach(el =>
+      el.addEventListener('click', () => { gruppenDetailId = el.dataset.id; renderGruppen(); })
+    );
+  }
+
+  async function renderGruppenDetail(contentEl, groupId) {
+    let group = gruppenCache.find(g => g.id === groupId);
+    if (!group) {
+      gruppenCache = await SB.listMyGroups();
+      group = gruppenCache.find(g => g.id === groupId);
+    }
+    if (!group) {
+      contentEl.innerHTML = '<p class="muted">Gruppe nicht gefunden.</p>';
+      return;
+    }
+
+    contentEl.innerHTML = '<p class="muted">Lade Mitglieder & Leaderboard…</p>';
+    const [members, leaderboard] = await Promise.all([SB.listMembers(groupId), SB.listLeaderboard(groupId)]);
+    const inviteLink = `${location.origin}${location.pathname}?join=${group.invite_code}`;
+
+    contentEl.innerHTML = `
+      <button type="button" id="back-to-groups" class="link-btn">
+        ${Icons.svg('chevron', { size: 14, class: 'chevron-back' })} Alle Gruppen
+      </button>
+      <h3>${escapeHtml(group.name)}</h3>
+      <div class="card-form">
+        <p class="muted">Einladungslink zum Teilen:</p>
+        <div class="invite-link-row">
+          <input type="text" readonly value="${escapeHtml(inviteLink)}" id="invite-link-input">
+          <button type="button" id="copy-invite-btn" class="secondary-btn">Kopieren</button>
+        </div>
+      </div>
+
+      <h3>Mitglieder (${members.length})</h3>
+      <ul class="list">
+        ${members.map(m => `<li class="list-item"><div><strong>${escapeHtml(m.displayName)}</strong></div></li>`).join('')}
+      </ul>
+
+      <h3>Leaderboard</h3>
+      <ul class="list">
+        ${leaderboard.map((s, i) => `
+          <li class="list-item leaderboard-item">
+            <span class="leaderboard-rank">${i + 1}.</span>
+            <div class="list-item-body">
+              <strong>${escapeHtml(s.displayName)}</strong>
+              <div class="muted">${s.totalFaenge} Fänge${s.biggestFishArt ? ` · Größter: ${escapeHtml(s.biggestFishArt)} (${s.biggestFishLaenge} cm)` : ''}</div>
+            </div>
+          </li>
+        `).join('') || '<li class="muted">Noch keine Statistik vorhanden.</li>'}
+      </ul>
+    `;
+
+    document.getElementById('back-to-groups').addEventListener('click', () => { gruppenDetailId = null; renderGruppen(); });
+    document.getElementById('copy-invite-btn').addEventListener('click', () => {
+      const input = document.getElementById('invite-link-input');
+      input.select();
+      const btn = document.getElementById('copy-invite-btn');
+      navigator.clipboard?.writeText(inviteLink)
+        .then(() => { btn.textContent = 'Kopiert!'; setTimeout(() => { btn.textContent = 'Kopieren'; }, 1500); })
+        .catch(() => {});
+    });
+  }
+
   // ---------- Einstellungen ----------
   function renderEinstellungen() {
     const gewaesser = Storage.gewaesser.list();
@@ -1184,8 +1379,16 @@
   function boot() {
     headerEl.hidden = false;
     navEl.hidden = false;
-    const initial = location.hash.replace('#', '') || 'start';
-    navigate(VIEWS[initial] ? initial : 'start');
+
+    const joinCode = new URLSearchParams(location.search).get('join');
+    if (joinCode) {
+      gruppenPrefillCode = joinCode;
+      history.replaceState(null, '', location.pathname + location.hash);
+      navigate('gruppen');
+    } else {
+      const initial = location.hash.replace('#', '') || 'start';
+      navigate(VIEWS[initial] ? initial : 'start');
+    }
 
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {

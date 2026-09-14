@@ -1,6 +1,6 @@
 // Cached die App-Shell, damit die App auch ohne Netzverbindung startet.
 // Live-Wetterdaten (Open-Meteo) brauchen weiterhin eine Verbindung.
-const CACHE_NAME = 'fishingguide-v7';
+const CACHE_NAME = 'fishingguide-v8';
 const APP_SHELL = [
   './',
   './index.html',
@@ -13,6 +13,7 @@ const APP_SHELL = [
   './js/tips.js',
   './js/koederPresets.js',
   './js/fuehrung.js',
+  './js/supabaseClient.js',
   './manifest.json',
   './icons/icon-192.png',
   './icons/icon-512.png',
@@ -34,8 +35,13 @@ self.addEventListener('activate', event => {
 
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
-  // Wetter-API und Kartenvorschau immer live abrufen, niemals aus dem Cache.
-  if (url.hostname.includes('open-meteo.com') || url.hostname.includes('openstreetmap.org')) return;
+  // Wetter-API, Kartenvorschau und Supabase (Gruppen/Leaderboard, Auth) immer
+  // live abrufen, niemals aus dem Cache.
+  if (
+    url.hostname.includes('open-meteo.com') ||
+    url.hostname.includes('openstreetmap.org') ||
+    url.hostname.includes('supabase.co')
+  ) return;
 
   event.respondWith(
     caches.match(event.request).then(cached => cached || fetch(event.request))
