@@ -219,6 +219,7 @@
           await Auth.login(username, password);
         }
         Storage.setNamespace(Auth.currentUsername());
+        SB.setAccount(Auth.currentUsername());
         boot();
       } catch (err) {
         errorEl.textContent = err.message;
@@ -1400,6 +1401,7 @@
   function init() {
     if (Auth.isLoggedIn()) {
       Storage.setNamespace(Auth.currentUsername());
+      SB.setAccount(Auth.currentUsername());
       boot();
     } else {
       headerEl.hidden = true;

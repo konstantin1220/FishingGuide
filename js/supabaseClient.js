@@ -9,11 +9,26 @@ const SB = (() => {
   const SUPABASE_URL = 'https://zcgltmednexquyzueqdc.supabase.co';
   const SUPABASE_KEY = 'sb_publishable_tLXoTU6J1fFT4owdxbPYkA_i9xTMknb';
 
-  const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-
+  // Die Supabase-Anon-Sitzung wird pro lokalem App-Konto unter einem eigenen
+  // localStorage-Key gespeichert (statt einem einzigen, browserweiten Key).
+  // Grund: teilen sich mehrere Freunde ein Gerät mit je eigenem FishingGuide-
+  // Konto, sollen sie in Gruppen auch als unterschiedliche Personen zählen -
+  // nicht als eine geteilte, browserweite Supabase-Identität.
+  let client = null;
+  let currentAccount = null;
   let sessionPromise = null;
 
+  function setAccount(username) {
+    if (username === currentAccount && client) return;
+    currentAccount = username;
+    sessionPromise = null;
+    client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+      auth: { storageKey: `sb-fg-${username}-auth-token` },
+    });
+  }
+
   function ensureSession() {
+    if (!client) throw new Error('SB.setAccount() muss vor der ersten Nutzung aufgerufen werden.');
     if (!sessionPromise) {
       sessionPromise = (async () => {
         const { data } = await client.auth.getSession();
@@ -85,5 +100,5 @@ const SB = (() => {
     if (error) throw error;
   }
 
-  return { ensureSession, createGroup, joinGroup, listMyGroups, listMembers, listLeaderboard, syncStats };
+  return { setAccount, ensureSession, createGroup, joinGroup, listMyGroups, listMembers, listLeaderboard, syncStats };
 })();
